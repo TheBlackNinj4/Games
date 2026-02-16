@@ -1,0 +1,136 @@
+import random
+import time
+import os
+import unicodedata
+import sys
+
+class Termo:
+    def __init__(self):
+        self.palavra = self._carregar_palavra_aleatoria()
+        self.alfabeto_status = {l: '' for l in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"}
+        
+        # --- Configuração de Cores ---
+        self.BG_VERDE   = '\033[1;37;42m'
+        self.BG_AMARELO = '\033[1;37;43m'
+        self.BG_CINZA   = '\033[1;37;100m'
+        self.RESET      = '\033[0m'
+
+    def _carregar_palavra_aleatoria(self):
+        try:
+            with open("palavras.txt", "r", encoding="utf-8") as arquivo:
+                palavras = [p.strip().upper() for p in arquivo.readlines() if p.strip()]
+            return self._remover_acentos(random.choice(palavras)) if palavras else "TERMO"
+        except FileNotFoundError:
+            return "TERMO"
+
+    def _remover_acentos(self, texto):
+        return "".join(c for c in unicodedata.normalize('NFD', texto)
+                       if unicodedata.category(c) != 'Mn')
+
+    def limpar_tela(self):
+        os.system('') 
+        os.system('cls' if os.name == 'nt' else 'clear')
+
+    def animar_vitoria(self):
+        """Cria um efeito de carregamento antes de revelar a vitória."""
+        mensagens = ["VALIDANDO", "ANALISANDO", "VERIFICANDO"]
+        print("\n")
+        for msg in mensagens:
+            for i in range(4):
+                # O \r faz o cursor voltar para o início da linha
+                sys.stdout.write(f"\r{msg}{'.' * i}   ")
+                sys.stdout.flush()
+                time.sleep(0.3)
+        print(f"\r{self.BG_VERDE} PALAVRA CORRETA! {self.RESET}")
+        time.sleep(0.5)
+
+    def exibir_teclado(self):
+        print(f"\n{'='*25}")
+        print("    STATUS DAS LETRAS")
+        print(f"{'='*25}")
+        linha = ""
+        for i, (letra, cor) in enumerate(self.alfabeto_status.items()):
+            if cor:
+                linha += f"{cor} {letra} {self.RESET} "
+            else:
+                linha += f" {letra} "
+            if (i + 1) % 9 == 0:
+                print(linha)
+                linha = ""
+        print(linha)
+        print(f"{'='*25}")
+
+    def comparar_palavras(self, chute):
+        tamanho = len(self.palavra)
+        resultado = [None] * tamanho
+        palavra_lista = list(self.palavra)
+
+        for i in range(tamanho):
+            letra = chute[i]
+            if letra == self.palavra[i]:
+                resultado[i] = f"{self.BG_VERDE} {letra} {self.RESET}"
+                palavra_lista[i] = None
+                self.alfabeto_status[letra] = self.BG_VERDE
+
+        for i in range(tamanho):
+            if resultado[i] is None:
+                letra = chute[i]
+                if letra in palavra_lista:
+                    resultado[i] = f"{self.BG_AMARELO} {letra} {self.RESET}"
+                    palavra_lista[palavra_lista.index(letra)] = None
+                    if self.alfabeto_status[letra] != self.BG_VERDE:
+                        self.alfabeto_status[letra] = self.BG_AMARELO
+                else:
+                    resultado[i] = f"{self.BG_CINZA} {letra} {self.RESET}"
+                    if not self.alfabeto_status[letra]:
+                        self.alfabeto_status[letra] = self.BG_CINZA
+        return " ".join(resultado)
+
+    def adivinhar(self):
+        self.limpar_tela()
+        historico = []
+        max_tentativas = 6
+        
+        # Dentro do método adivinhar()
+        while len(historico) < max_tentativas:
+            self.limpar_tela() # Limpa antes de redesenhar tudo
+            print(" --- 🟩 JOGO DO TERMO 🟨 --- ")
+            
+            # 1. Mostra o que você já chutou
+            for h in historico:
+                print(h)
+            
+            # 2. Mostra "linhas vazias" apenas para as tentativas que faltam
+            for _ in range(max_tentativas - len(historico)):
+                # Criamos uma linha de underscores do tamanho EXATO da palavra da vez
+                linha_vazia = " _ " * len(self.palavra)
+                print(linha_vazia)
+        
+            self.exibir_teclado()
+            
+            chute = input(f"\nTentativa {len(historico)+1}/{max_tentativas}: ").upper()
+            chute = self._remover_acentos(chute)
+
+            if len(chute) != len(self.palavra):
+                self.limpar_tela()
+                print(f"⚠️ Erro: Digite {len(self.palavra)} letras!")
+                continue
+
+            feedback = self.comparar_palavras(chute)
+            historico.append(feedback)
+            
+            if chute == self.palavra:
+                self.animar_vitoria() # Aciona a animação aqui!
+                self.limpar_tela()
+                print(" --- 🟩 JOGO DO TERMO 🟨 --- ")
+                for h in historico: print(h)
+                print(f"\n🎉 Incrível! Você acertou em {len(historico)} tentativas!")
+                return
+
+            self.limpar_tela()
+
+        print(f"\n💀 Fim de jogo! A palavra era: {self.palavra}")
+
+# Iniciar o jogo
+jogo = Termo()
+jogo.adivinhar()

@@ -1,0 +1,293 @@
+import random
+import json
+import os
+import time
+
+# Paleta de Cores ANSI
+CORES = {
+    'limpar': '\033[0m',
+    'negrito': '\033[1m',
+    'azul': '\033[94m',
+    'verde': '\033[92m',
+    'amarelo': '\033[93m',
+    'vermelho': '\033[91m',
+    'roxo': '\033[95m',
+    'ciano': '\033[96m'
+}
+
+class Jogo:
+    def __init__(self, nick, credito=0, progresso=0, nivel=1, xp=0, inventario=None, conquistas=None):
+        self._nick = nick
+        self._progresso_atual = progresso
+        self._nivel = nivel
+        self._xp = xp
+        self._credito = credito
+        self.inventario = inventario if inventario is not None else []
+        self.conquistas = conquistas if conquistas is not None else []
+        
+        self.DB_CONQUISTAS = {
+            "Recruta": "Completar a primeira missão",
+            "Mãos de Plástico": "Comprar Luvas de Boxe",
+            "Sortudo": "Ganhar no jogo de Dados",
+            "Magnata": "Acumular R$5.000 em saldo",
+            "Veterano": "Chegar ao nível 5",
+            "Cibercriminoso": "Desbloquear o computador na Missão 3"
+        }
+
+    def limpar_tela(self):
+        os.system('cls' if os.name == 'nt' else 'clear')
+
+    def exibir_msg(self, texto, cor='limpar', tempo=1.5):
+        print(f"{CORES[cor]}{texto}{CORES['limpar']}")
+        time.sleep(tempo)
+
+    def salvar(self):
+        dados = {
+            "Nick": self._nick,
+            "Missao": self._progresso_atual,
+            "Nivel": self._nivel,
+            "XP": self._xp,
+            "Credito": self._credito,
+            "Itens": self.inventario,
+            "Conquistas": self.conquistas
+        }
+        with open(f"{self._nick}_save.json", "w") as f:
+            json.dump(dados, f, indent=4)
+
+    def experiencia(self, exp):
+        self._xp += exp
+        while True:
+            prox_nivel = 10 + (5 * self._nivel)
+            if self._xp >= prox_nivel:
+                self._nivel += 1
+                recompensa = 100 * self._nivel
+                self._credito += recompensa
+                self._xp -= prox_nivel
+                self.exibir_msg(f"✨ LEVEL UP! Nível: {self._nivel} | Bônus: +R${recompensa}", 'verde', 2)
+            else:
+                break
+        self.verificar_conquistas()
+
+    def verificar_conquistas(self):
+        regras = {
+            "Recruta": self._progresso_atual >= 1,
+            "Mãos de Plástico": "Luvas de boxe" in self.inventario,
+            "Magnata": self._credito >= 5000,
+            "Veterano": self._nivel >= 5,
+            "Cibercriminoso": self._progresso_atual >= 3
+        }
+        for nome, condicao in regras.items():
+            if condicao and nome not in self.conquistas:
+                self.conquistas.append(nome)
+                print(f"{CORES['roxo']}🏆 CONQUISTA DESBLOQUEADA: {nome}!{CORES['limpar']}")
+                self.salvar()
+
+    def tela_conquistas(self):
+        self.limpar_tela()
+        print(f"{CORES['amarelo']}=== MURAL DE CONQUISTAS ==={CORES['limpar']}")
+        for nome, desc in self.DB_CONQUISTAS.items():
+            status = f"{CORES['verde']}⭐ [LIBERADA]" if nome in self.conquistas else f"{CORES['vermelho']}🔒 [BLOQUEADA]"
+            print(f"{status} {nome}{CORES['limpar']}\n   └ {desc}\n")
+        input("Pressione Enter para voltar...")
+
+    def bonus_item(self, valor_base, dado=0):
+        extra_cash = int(valor_base * 0.50) if "Pocao tentadora" in self.inventario else 0
+        extra_dado = int(dado * 0.20) if "Dados melhores" in self.inventario else 0
+        return extra_cash, extra_dado
+
+    def inserir_aposta(self):
+        while True:
+            try:
+                print(f"\n{CORES['verde']}Saldo: R${self._credito}{CORES['limpar']}")
+                aposta = int(input("Aposta (0 para sair): "))
+                if aposta == 0: return 0
+                if 0 < aposta <= self._credito:
+                    self._credito -= aposta
+                    return aposta
+                print("Saldo insuficiente!")
+            except ValueError:
+                print("Digite um número!")
+
+    def missoes(self):
+        lista = [self.missao1, self.missao2, self.missao3]
+        if self._progresso_atual < len(lista):
+            lista[self._progresso_atual]()
+        else:
+            self.exibir_msg("🎉 Todas as missões concluídas!", 'amarelo')
+
+    def missao1(self):
+        self.limpar_tela()
+        print("--- MISSÃO 1: O HACKER INICIANTE ---")
+        num = random.randint(1, 99)
+        while True:
+            chute = int(input("Senha: "))
+            if chute == num:
+                self.finalizar_missao(500, 15, 1); break
+            print("MAIOR!" if chute < num else "MENOR!")
+
+    def missao2(self):
+        self.limpar_tela()
+        print("--- MISSÃO 2: DUELO DE REFLEXOS ---")
+        vitorias = 0
+        while vitorias < 3:
+            time.sleep(random.uniform(1, 3))
+            print(f"{CORES['amarelo']}AGORA!{CORES['limpar']}")
+            inicio = time.time()
+            input()
+            if time.time() - inicio <= 0.7:
+                vitorias += 1
+                print("Boa!")
+            else: print("Lento!")
+        self.finalizar_missao(1000, 25, 2)
+
+    def missao3(self):
+        self.limpar_tela()
+        seq = "".join([str(random.randint(0,9)) for _ in range(5)])
+        print(f"DECORE: {seq}"); time.sleep(3); self.limpar_tela()
+        if input("Digite: ") == seq: self.finalizar_missao(2000, 50, 3)
+        else: self.exibir_msg("Falhou!", 'vermelho')
+
+    def finalizar_missao(self, cash, xp, prox):
+        extra, _ = self.bonus_item(cash)
+        self._credito += (cash + extra)
+        self._progresso_atual = prox
+        self.experiencia(xp)
+        self.salvar()
+
+    def loja(self):
+        itens = {"Dados melhores": 2500, "Luvas de boxe": 1000, "Pocao tentadora": 3500}
+        while True:
+            self.limpar_tela()
+            vitrine = {k: v for k, v in itens.items() if k not in self.inventario}
+            print(f"--- LOJA (R${self._credito}) ---")
+            if not vitrine: self.exibir_msg("Loja vazia!"); break
+            
+            mapa = {}
+            for i, (item, preco) in enumerate(vitrine.items(), 1):
+                print(f"{i}. {item} - R${preco}")
+                mapa[str(i)] = item
+            
+            esc = input("\nNúmero ou Nome (sair): ").strip()
+            if esc.lower() == 'sair': break
+            
+            item_sel = mapa.get(esc) or next((n for n in vitrine if n.lower() == esc.lower()), None)
+            
+            if item_sel:
+                if self._credito >= vitrine[item_sel]:
+                    self._credito -= vitrine[item_sel]
+                    self.inventario.append(item_sel)
+                    self.exibir_msg(f"✅ {item_sel} comprado!", 'verde')
+                    self.verificar_conquistas()
+                else: self.exibir_msg("Sem saldo!", 'vermelho')
+
+    def cassino(self):
+        while True:
+            self.limpar_tela()
+            print(f"--- CASSINO ---")
+            print("1. Dados | 2. Caça-Niquel | 3. Voltar")
+            op = input("Escolha: ")
+            if op == "1": self.dados()
+            elif op == "2": self.caca_niquel()
+            elif op == "3": break
+
+    def dados(self):
+        aposta = self.inserir_aposta()
+        if not aposta: return
+        p1, pc = random.randint(1,12), random.randint(1,12)
+        _, extra_d = self.bonus_item(aposta, p1)
+        p1 += extra_d
+        print(f"Você: {p1} | PC: {pc}")
+        if p1 > pc:
+            self._credito += (aposta * 2)
+            self.exibir_msg("Ganhou!", 'verde')
+            self.experiencia(10)
+        else: self.exibir_msg("Perdeu!", 'vermelho')
+
+    def caca_niquel(self):
+        config_simbolos = {
+            "7️⃣": {"peso": 1.5,  "mult": 50},
+            "⭐": {"peso": 3,  "mult": 5},   
+            "💎": {"peso": 5,  "mult": 2},    
+            "💰": {"peso": 9.5,  "mult": 1.5},
+            "🍀": {"peso": 13,  "mult": 1},  
+            "🔔": {"peso": 18, "mult": 0.8},     
+            "🍒": {"peso": 20, "mult": 0.5},     
+            "🍋": {"peso": 30, "mult": 0.2}      
+        }
+        
+        aposta = self.inserir_aposta()
+        if aposta == 0: return
+
+        icones = list(config_simbolos.keys())
+        pesos = [config_simbolos[s]["peso"] for s in icones]
+
+        print("\n🎰 GIRANDO OS ROLOS... 🎰")
+        time.sleep(1)
+
+        todos_sorteados = random.choices(icones, weights=pesos, k=9)
+        
+        print("\n   1   2   3")
+        print("  -----------")
+        for i in range(0, 9, 3):
+            linha = todos_sorteados[i:i+3]
+            print(f"  | {' | '.join(linha)} |")
+            print("  -----------")
+            time.sleep(0.5)
+
+        ganho_total = 0
+        venceu = False
+        maior_extra = 0
+
+        for simbolo in config_simbolos:
+            quantidade = todos_sorteados.count(simbolo)
+            if quantidade >= 3:
+                venceu = True
+                mult_base = config_simbolos[simbolo]["mult"]
+                extras = quantidade - 3
+                if extras > maior_extra: maior_extra = extras
+                
+                multiplicador_final = mult_base + (extras * 0.2)
+                premio = int(aposta * multiplicador_final)
+                ganho_total += premio
+                
+                msg_extra = f" (+{extras} bônus!)" if extras > 0 else ""
+                print(f"✨ VITÓRIA! {quantidade}x {simbolo}{msg_extra}! +R${premio}")
+
+        if venceu:
+            bonus_cash, _ = self.bonus_item(ganho_total, 0)
+            self._credito += (ganho_total + bonus_cash)
+            self.experiencia(5 + maior_extra)
+            print(f"\n💰 TOTAL RECEBIDO: R${ganho_total + bonus_cash}")
+        else:
+            print("\n❌ Tente novamente!")
+
+        self.salvar()
+        time.sleep(3)
+
+    def gameplay(self):
+        while True:
+            self.limpar_tela()
+            print(f"{CORES['azul']}="*40)
+            print(f"👤 {self._nick} | ⭐ Lvl: {self._nivel} | 💰 R${self._credito}")
+            print(f"🏆 Conquistas: {len(self.conquistas)}/6")
+            print("="*40 + CORES['limpar'])
+            print("1. Missão\n2. Loja\n3. Cassino\n4. Conquistas\n5. Sair")
+            op = input("\nEscolha: ")
+            if op == "1": self.missoes()
+            elif op == "2": self.loja() if self._progresso_atual > 0 else self.exibir_msg("Bloqueado!")
+            elif op == "3": self.cassino() if self._progresso_atual > 1 else self.exibir_msg("Bloqueado!")
+            elif op == "4": self.tela_conquistas()
+            elif op == "5": self.salvar(); break
+
+def carregar_jogo(nick):
+    arquivo = f"{nick}_save.json"
+    if os.path.exists(arquivo):
+        with open(arquivo, "r") as f:
+            d = json.load(f)
+            return Jogo(d["Nick"], d["Credito"], d["Missao"], d["Nivel"], d["XP"], d.get("Itens"), d.get("Conquistas"))
+    return Jogo(nick)
+
+if __name__ == "__main__":
+    nome = input("Digite seu Nick: ").strip().capitalize()
+    jogar = carregar_jogo(nome)
+    jogar.gameplay()
