@@ -23,7 +23,6 @@ class projeto():
     def carregar_jogo(self):
         if os.path.exists("banco_de_dados.json"):
             with open("banco_de_dados.json", "r") as f:
-            # Aqui está o segredo: preencher a lista da classe
                 self.projetos_cadastrados = json.load(f)
         
     def cadastrar(self):
@@ -51,14 +50,12 @@ class projeto():
             
     def pesquisar(self):
         self.limpar_tela()
-        # Mostra o total logo no início
         print(f"Total de clientes no sistema: {len(self.projetos_cadastrados)}")
         
         busca = input("Digite parte do nome ou código: ").lower()
         encontrados_nesta_busca = 0
 
         for p in self.projetos_cadastrados:
-            # A mágica do 'in' acontece aqui
             if busca in p['nome'].lower() or busca == str(p['codigo']):
                 print(f"\n[{p['codigo']}] - {p['nome']} | Valor: R${p['valor']} | Rota: {p['rota']}")
                 encontrados_nesta_busca += 1
@@ -78,4 +75,5 @@ class projeto():
             elif op == "4": break
         
 meu_sistema = projeto("Sistema")
+
 meu_sistema.executar()
