@@ -1,0 +1,288 @@
+from datetime import datetime, date, time
+from typing import List, Dict
+from abc import ABC, abstractmethod
+
+class Clinica:
+    def __init__(self, nome: str, city: str, descricao: str, hora_abertura: time, hora_fechamento: time):
+        self.nome = nome
+        self.cidade = city
+        self.descricao = descricao
+        self.hora_abertura = hora_abertura
+        self.hora_fechamento = hora_fechamento
+        self.atendimentos: List['Atendimento'] = []
+
+
+class Pessoa:
+    def __init__(self, nome: str, celular: str, cpf: str, data_nascimento: date):
+        self.nome = nome
+        self.celular = celular
+        self.cpf = cpf
+        self.data_nascimento = data_nascimento
+
+    @property
+    def idade(self) -> int:
+        hoje = date.today()
+        return hoje.year - self.data_nascimento.year - (
+            (hoje.month, hoje.day) < (self.data_nascimento.month, self.data_nascimento.day)
+        )
+
+
+class Paciente(Pessoa):
+    def pode_realizar_atendimento_independente(self) -> bool:
+        return self.idade >= 18
+
+
+class ProfissionalSaude(Pessoa):
+    def __init__(self, nome: str, celular: str, cpf: str, data_nascimento: date, especialidade: str, registro_profissional: str):
+        super().__init__(nome, celular, cpf, data_nascimento)
+        self.especialidade = especialidade
+        self.registro_profissional = registro_profissional
+
+
+class Procedimento:
+    def __init__(self, descricao: str, custo: float, profissional_responsavel: ProfissionalSaude):
+        self.descricao = descricao
+        self.custo = custo
+        self.profissional_responsavel = profissional_responsavel
+
+
+class Atendimento:
+    def __init__(self, id_atendimento: int, clinica: Clinica, paciente: Paciente, profesional: ProfissionalSaude, 
+                 data: date, hora_inicio: time, hora_fim: time, tipo: str, valor_base: float):
+        
+        self.id = id_atendimento
+        self.clinica = clinica
+        self.paciente = paciente
+        self.profissional = profesional
+        self.data = data
+        self.hora_inicio = hora_inicio
+        self.hora_fim = hora_fim
+        self.tipo = tipo
+        self.valor_base = valor_base
+        self.procedimentos_realizados: List[Procedimento] = []
+        self.pagamentos: List['Pagamento'] = []
+
+    @property
+    def valor_total(self) -> float:
+        custo_procedimentos = sum(p.custo for p in self.procedimentos_realizados)
+        return self.valor_base + custo_procedimentos
+
+    @property
+    def valor_pago(self) -> float:
+        return sum(p.valor_pago for p in self.pagamentos)
+
+    @property
+    def valor_restante(self) -> float:
+        return self.valor_total - self.valor_pago
+
+
+class ModalidadePagamento(ABC):
+    
+    @abstractmethod
+    def __str__(self) -> str:
+        pass
+
+
+class PagamentoDinheiro(ModalidadePagamento):
+    def __str__(self): 
+        return "Dinheiro"
+
+
+class PagamentoPix(ModalidadePagamento):
+    def __init__(self, cpf_pagador: str): 
+        self.cpf_pagador = cpf_pagador
+        
+    def __str__(self): 
+        return f"PIX (CPF: {self.cpf_pagador})"
+
+
+class PagamentoCartao(ModalidadePagamento):
+    def __init__(self, numero_cartao: str, bandeira: str):
+        self.numero_cartao = numero_cartao
+        self.bandeira = bandeira
+        
+    def __str__(self): 
+        return f"Cartão {self.bandeira} (*{self.numero_cartao[-4:]})"
+
+
+class Pagamento:
+    def __init__(self, data: date, valor_pago: float, modalidade: ModalidadePagamento):
+        self.data = data
+        self.valor_pago = valor_pago
+        self.modalidade = modalidade
+
+
+class ClinicaController:
+    def __init__(self):
+        self.clinicas: Dict[str, Clinica] = {}
+        self.pacientes: Dict[str, Paciente] = {}
+        self.profissionais: Dict[str, ProfissionalSaude] = {}
+        self.atendimentos: Dict[int, Atendimento] = {}
+        self.id_contador_atendimento = 1
+
+    def cadastrar_clinica(self, nome: str, cidade: str, descricao: str, abertura: time, fechamento: time) -> str:
+        if nome in self.clinicas:
+            return "Erro: Clínica já cadastrada."
+        self.clinicas[nome] = Clinica(nome, cidade, descricao, abertura, fechamento)
+        return "Clínica cadastrada com sucesso!"
+
+    def cadastrar_paciente(self, nome: str, celular: str, cpf: str, data_nasc: date) -> str:
+        if cpf in self.pacientes:
+            return "Erro: Paciente com este CPF já existe."
+        self.pacientes[cpf] = Paciente(nome, celular, cpf, data_nasc)
+        return "Paciente cadastrado com sucesso!"
+
+    def cadastrar_profissional(self, nome: str, celular: str, cpf: str, data_nasc: date, esp: str, registro: str) -> str:
+        if cpf in self.profissionais:
+            return "Erro: Profissional com este CPF já existe."
+        self.profissionais[cpf] = ProfissionalSaude(nome, celular, cpf, data_nasc, esp, registro)
+        return "Profissional de Saúde cadastrado com sucesso!"
+
+    def agendar_atendimento(self, nome_clinica: str, cpf_paciente: str, cpf_prof: str, 
+                            data_atend: date, inicio: time, fim: time, tipo: str, valor: float) -> str:
+        
+        clinica = self.clinicas.get(nome_clinica)
+        paciente = self.pacientes.get(cpf_paciente)
+        profissional = self.profissionais.get(cpf_prof)
+
+        if not clinica or not paciente or not profesional:
+            return "Erro: Clínica, Paciente ou Profissional não encontrado."
+
+        if not paciente.pode_realizar_atendimento_independente():
+            return "Erro: Paciente menor de 18 anos não pode realizar atendimento de forma independente."
+
+        if inicio < clinica.hora_abertura or fim > clinica.hora_fechamento:
+            return "Erro: Horário solicitado está fora do período de funcionamento da clínica."
+
+        novo_atendimento = Atendimento(self.id_contador_atendimento, clinica, paciente, profissional, data_atend, inicio, fim, tipo, valor)
+        self.atendimentos[self.id_contador_atendimento] = novo_atendimento
+        clinica.atendimentos.append(novo_atendimento)
+        
+        self.id_contador_atendimento += 1
+        return f"Atendimento #{novo_atendimento.id} agendado com sucesso!"
+
+    def registrar_pagamento(self, id_atend: int, data_pagto: date, valor: float, modalidade: ModalidadePagamento) -> str:
+        atend = self.atendimentos.get(id_atend)
+        if not atend:
+            return "Erro: Atendimento não encontrado."
+
+        if data_pagto > atend.data:
+            return "Erro: Pagamentos só podem ser realizados até a data do atendimento."
+
+        if valor > atend.valor_restante:
+            return f"Erro: Valor excede o saldo restante (Restante: R$ {atend.valor_restante:.2f})."
+
+        novo_pagto = Pagamento(data_pagto, valor, modalidade)
+        atend.pagamentos.append(novo_pagto)
+        return f"Pagamento de R$ {valor:.2f} registrado. Restante: R$ {atend.valor_restante:.2f}"
+
+    def relatorio_clinica_mais_atendimentos(self):
+        if not self.clinicas: return "Nenhuma clínica cadastrada."
+        resultado = sorted(self.clinicas.values(), key=lambda c: len(c.atendimentos), reverse=True)
+        return [(c.nome, len(c.atendimentos)) for c in resultado]
+
+
+class ClinicaView:
+    def __init__(self, controller: ClinicaController):
+        self.controller = controller
+
+    def exibir_menu(self):
+        print("\n" + "="*30)
+        print("  SISTEMA DE GESTÃO DE CLÍNICAS")
+        print("="*30)
+        print("1. Cadastrar Clínica")
+        print("2. Cadastrar Paciente")
+        print("3. Cadastrar Profissional")
+        print("4. Agendar Atendimento")
+        print("5. Registrar Pagamento")
+        print("6. Relatório: Clínicas Populares")
+        print("0. Sair")
+        
+    def executar(self):
+        self._carga_inicial_testes()
+        
+        while True:
+            self.exibir_menu()
+            opcao = input("Escolha uma opção: ")
+            
+            if opcao == "1":
+                print("\n--- Cadastrar Clínica ---")
+                nome = input("Nome: ")
+                cidade = input("Cidade: ")
+                desc = input("Descrição: ")
+                h_abertura = time(int(input("Hora Abertura (Ex: 8): ")), 0)
+                h_fechamento = time(int(input("Hora Fechamento (Ex: 18): ")), 0)
+                res = self.controller.cadastrar_clinica(nome, cidade, desc, h_abertura, h_fechamento)
+                print(res)
+
+            elif opcao == "2":
+                print("\n--- Cadastrar Paciente ---")
+                nome = input("Nome: ")
+                celular = input("Celular: ")
+                cpf = input("CPF: ")
+                ano = int(input("Ano Nascimento: "))
+                mes = int(input("Mês Nascimento: "))
+                dia = int(input("Dia Nascimento: "))
+                res = self.controller.cadastrar_paciente(nome, celular, cpf, date(ano, mes, dia))
+                print(res)
+
+            elif opcao == "4":
+                print("\n--- Agendar Atendimento ---")
+                clinica = input("Nome da Clínica: ")
+                cpf_pac = input("CPF Paciente: ")
+                cpf_prof = input("CPF Profissional: ")
+                valor = float(input("Valor Base: R$ "))
+                res = self.controller.agendar_atendimento(
+                    clinica, cpf_pac, cpf_prof, date.today(), time(10, 0), time(11, 0), "Consulta", valor
+                )
+                print(res)
+
+            elif opcao == "5":
+                print("\n--- Registrar Pagamento ---")
+                id_atend = int(input("ID do Atendimento: "))
+                valor = float(input("Valor a Pagar: R$ "))
+                print("1. Dinheiro | 2. PIX | 3. Cartão")
+                mod = input("Modo: ")
+                
+                if mod == "1":
+                    modalidade = PagamentoDinheiro()
+                elif mod == "2":
+                    cpf = input("CPF do Pagador: ")
+                    modalidade = PagamentoPix(cpf)
+                elif mod == "3":
+                    num = input("Número Cartão: ")
+                    bandeira = input("Bandeira: ")
+                    modalidade = PagamentoCartao(num, bandeira)
+                else:
+                    print("Opção de modalidade inválida. Usando Dinheiro por padrão.")
+                    modalidade = PagamentoDinheiro()
+                
+                res = self.controller.registrar_pagamento(id_atend, date.today(), valor, modalidade)
+                print(res)
+
+            elif opcao == "6":
+                print("\n--- Relatório: Clínicas com Mais Atendimentos ---")
+                dados = self.controller.relatorio_clinica_mais_atendimentos()
+                if isinstance(dados, list):
+                    for nome, qtd in dados:
+                        print(f"Clínica: {nome} | Atendimentos: {qtd}")
+                else:
+                    print(dados)
+
+            elif opcao == "0":
+                print("Encerrando o sistema...")
+                break
+            else:
+                print("Opção inválida.")
+
+    def _carga_inicial_testes(self):
+        self.controller.cadastrar_clinica("Alpha", "Florianópolis", "Geral", time(8,0), time(18,0))
+        self.controller.cadastrar_paciente("Carlos Silva", "9999-9999", "123", date(1990, 5, 15))
+        self.controller.cadastrar_paciente("Bebê João", "8888-8888", "321", date(2022, 1, 1))
+        self.controller.cadastrar_profissional("Dra. Ana", "7777-7777", "456", date(1985, 3, 20), "Cardiologia", "CRM-123")
+
+
+if __name__ == "__main__":
+    controller = ClinicaController()
+    view = ClinicaView(controller)
+    view.executar()
