@@ -57,7 +57,7 @@ class Procedimento:
     def __init__(self, descricao: str, custo: float, profissional_responsavel: ProfissionalSaude):
         self.descricao = descricao
         self.custo = custo
-        self.profissional_responsavel = profesional_responsavel
+        self.profissional_responsavel = profissional_responsavel
 
 
 class ModalidadePagamento(ABC):
