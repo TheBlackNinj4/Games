@@ -2,10 +2,24 @@ from datetime import datetime, date, time
 from typing import List, Dict
 from abc import ABC, abstractmethod
 
+
+class SistemaClinicaError(Exception):
+    pass
+
+class RegistroNaoEncontradoError(SistemaClinicaError):
+    pass
+
+class RegistroDuplicadoError(SistemaClinicaError):
+    pass
+
+class RegraNegocioError(SistemaClinicaError):
+    pass
+
+
 class Clinica:
-    def __init__(self, nome: str, city: str, descricao: str, hora_abertura: time, hora_fechamento: time):
+    def __init__(self, nome: str, cidade: str, descricao: str, hora_abertura: time, hora_fechamento: time):
         self.nome = nome
-        self.cidade = city
+        self.cidade = cidade
         self.descricao = descricao
         self.hora_abertura = hora_abertura
         self.hora_fechamento = hora_fechamento
@@ -43,41 +57,10 @@ class Procedimento:
     def __init__(self, descricao: str, custo: float, profissional_responsavel: ProfissionalSaude):
         self.descricao = descricao
         self.custo = custo
-        self.profissional_responsavel = profissional_responsavel
-
-
-class Atendimento:
-    def __init__(self, id_atendimento: int, clinica: Clinica, paciente: Paciente, profesional: ProfissionalSaude, 
-                 data: date, hora_inicio: time, hora_fim: time, tipo: str, valor_base: float):
-        
-        self.id = id_atendimento
-        self.clinica = clinica
-        self.paciente = paciente
-        self.profissional = profesional
-        self.data = data
-        self.hora_inicio = hora_inicio
-        self.hora_fim = hora_fim
-        self.tipo = tipo
-        self.valor_base = valor_base
-        self.procedimentos_realizados: List[Procedimento] = []
-        self.pagamentos: List['Pagamento'] = []
-
-    @property
-    def valor_total(self) -> float:
-        custo_procedimentos = sum(p.custo for p in self.procedimentos_realizados)
-        return self.valor_base + custo_procedimentos
-
-    @property
-    def valor_pago(self) -> float:
-        return sum(p.valor_pago for p in self.pagamentos)
-
-    @property
-    def valor_restante(self) -> float:
-        return self.valor_total - self.valor_pago
+        self.profissional_responsavel = profesional_responsavel
 
 
 class ModalidadePagamento(ABC):
-    
     @abstractmethod
     def __str__(self) -> str:
         pass
@@ -112,6 +95,36 @@ class Pagamento:
         self.modalidade = modalidade
 
 
+class Atendimento:
+    def __init__(self, id_atendimento: int, clinica: Clinica, paciente: Paciente, profissional: ProfissionalSaude, 
+                 data: date, hora_inicio: time, hora_fim: time, tipo: str, valor_base: float):
+        
+        self.id = id_atendimento
+        self.clinica = clinica
+        self.paciente = paciente
+        self.profissional = profissional
+        self.data = data
+        self.hora_inicio = hora_inicio
+        self.hora_fim = hora_fim
+        self.tipo = tipo
+        self.valor_base = valor_base
+        self.procedimentos_realizados: List[Procedimento] = []
+        self.pagamentos: List[Pagamento] = []
+
+    @property
+    def valor_total(self) -> float:
+        custo_procedimentos = sum(p.custo for p in self.procedimentos_realizados)
+        return self.valor_base + custo_procedimentos
+
+    @property
+    def valor_pago(self) -> float:
+        return sum(p.valor_pago for p in self.pagamentos)
+
+    @property
+    def valor_restante(self) -> float:
+        return self.valor_total - self.valor_pago
+
+
 class ClinicaController:
     def __init__(self):
         self.clinicas: Dict[str, Clinica] = {}
@@ -120,66 +133,172 @@ class ClinicaController:
         self.atendimentos: Dict[int, Atendimento] = {}
         self.id_contador_atendimento = 1
 
-    def cadastrar_clinica(self, nome: str, cidade: str, descricao: str, abertura: time, fechamento: time) -> str:
+    def cadastrar_clinica(self, nome: str, cidade: str, descricao: str, h_abertura: int, h_fechamento: int) -> None:
         if nome in self.clinicas:
-            return "Erro: Clínica já cadastrada."
+            raise RegistroDuplicadoError(f"Clínica '{nome}' já está cadastrada.")
+        abertura = time(h_abertura, 0)
+        fechamento = time(h_fechamento, 0)
         self.clinicas[nome] = Clinica(nome, cidade, descricao, abertura, fechamento)
-        return "Clínica cadastrada com sucesso!"
 
-    def cadastrar_paciente(self, nome: str, celular: str, cpf: str, data_nasc: date) -> str:
+    def alterar_clinica(self, nome: str, nova_cidade: str, nova_descricao: str, h_abertura: int, h_fechamento: int) -> None:
+        if nome not in self.clinicas:
+            raise RegistroNaoEncontradoError(f"Clínica '{nome}' não encontrada para alteração.")
+        clinica = self.clinicas[nome]
+        clinica.cidade = nova_cidade
+        clinica.descricao = nova_descricao
+        clinica.hora_abertura = time(h_abertura, 0)
+        clinica.hora_fechamento = time(h_fechamento, 0)
+
+    def excluir_clinica(self, nome: str) -> None:
+        if nome not in self.clinicas:
+            raise RegistroNaoEncontradoError(f"Clínica '{nome}' não encontrada para exclusão.")
+        if self.clinicas[nome].atendimentos:
+            raise RegraNegocioError("Não é possível excluir uma clínica que possui atendimentos vinculados.")
+        del self.clinicas[nome]
+
+    def listar_clinicas(self) -> List[Clinica]:
+        return list(self.clinicas.values())
+
+    def cadastrar_paciente(self, nome: str, celular: str, cpf: str, ano: int, mes: int, dia: int) -> None:
         if cpf in self.pacientes:
-            return "Erro: Paciente com este CPF já existe."
+            raise RegistroDuplicadoError(f"Paciente com o CPF {cpf} já existe.")
+        data_nasc = date(ano, mes, dia)
         self.pacientes[cpf] = Paciente(nome, celular, cpf, data_nasc)
-        return "Paciente cadastrado com sucesso!"
 
-    def cadastrar_profissional(self, nome: str, celular: str, cpf: str, data_nasc: date, esp: str, registro: str) -> str:
+    def alterar_paciente(self, cpf: str, novo_nome: str, novo_celular: str, ano: int, mes: int, dia: int) -> None:
+        if cpf not in self.pacientes:
+            raise RegistroNaoEncontradoError(f"Paciente com CPF {cpf} não encontrado.")
+        paciente = self.pacientes[cpf]
+        paciente.nome = novo_nome
+        paciente.celular = novo_celular
+        paciente.data_nascimento = date(ano, mes, dia)
+
+    def excluir_paciente(self, cpf: str) -> None:
+        if cpf not in self.pacientes:
+            raise RegistroNaoEncontradoError(f"Paciente com CPF {cpf} não encontrado.")
+        for atend in self.atendimentos.values():
+            if atend.paciente.cpf == cpf:
+                raise RegraNegocioError("Não é possível excluir um paciente com histórico de atendimentos.")
+        del self.pacientes[cpf]
+
+    def listar_pacientes(self) -> List[Paciente]:
+        return list(self.pacientes.values())
+
+    def cadastrar_profissional(self, nome: str, celular: str, cpf: str, ano: int, mes: int, dia: int, esp: str, registro: str) -> None:
         if cpf in self.profissionais:
-            return "Erro: Profissional com este CPF já existe."
-        self.profissionais[cpf] = ProfissionalSaude(nome, celular, cpf, data_nasc, esp, registro)
-        return "Profissional de Saúde cadastrado com sucesso!"
+            raise RegistroDuplicadoError(f"Profissional com o CPF {cpf} já existe.")
+        self.profissionais[cpf] = ProfissionalSaude(nome, celular, cpf, date(ano, mes, dia), esp, registro)
 
-    def agendar_atendimento(self, nome_clinica: str, cpf_paciente: str, cpf_prof: str, 
-                            data_atend: date, inicio: time, fim: time, tipo: str, valor: float) -> str:
-        
+    def alterar_profissional(self, cpf: str, novo_nome: str, novo_celular: str, esp: str, registro: str) -> None:
+        if cpf not in self.profissionais:
+            raise RegistroNaoEncontradoError(f"Profissional com CPF {cpf} não encontrado.")
+        prof = self.profissionais[cpf]
+        prof.nome = novo_nome
+        prof.celular = novo_celular
+        prof.especialidade = esp
+        prof.registro_profissional = registro
+
+    def excluir_profissional(self, cpf: str) -> None:
+        if cpf not in self.profissionais:
+            raise RegistroNaoEncontradoError(f"Profissional com CPF {cpf} não encontrado.")
+        for atend in self.atendimentos.values():
+            if atend.profissional.cpf == cpf:
+                raise RegraNegocioError("Não é possível excluir um profissional com atendimentos vinculados.")
+        del self.profissionais[cpf]
+
+    def listar_profissionais(self) -> List[ProfissionalSaude]:
+        return list(self.profissionais.values())
+
+    def agendar_atendimento(self, nome_clinica: str, cpf_paciente: str, cpf_prof: str, valor: float, tipo: str = "Consulta") -> int:
         clinica = self.clinicas.get(nome_clinica)
         paciente = self.pacientes.get(cpf_paciente)
         profissional = self.profissionais.get(cpf_prof)
 
-        if not clinica or not paciente or not profesional:
-            return "Erro: Clínica, Paciente ou Profissional não encontrado."
+        if not clinica: raise RegistroNaoEncontradoError(f"Clínica '{nome_clinica}' não encontrada.")
+        if not paciente: raise RegistroNaoEncontradoError(f"Paciente com CPF {cpf_paciente} não encontrado.")
+        if not profissional: raise RegistroNaoEncontradoError(f"Profissional com CPF {cpf_prof} não encontrado.")
 
         if not paciente.pode_realizar_atendimento_independente():
-            return "Erro: Paciente menor de 18 anos não pode realizar atendimento de forma independente."
+            raise RegraNegocioError("Paciente menor de 18 anos não pode realizar atendimento de forma independente.")
+
+        data_atend = date.today()
+        inicio = time(10, 0)
+        fim = time(11, 0)
 
         if inicio < clinica.hora_abertura or fim > clinica.hora_fechamento:
-            return "Erro: Horário solicitado está fora do período de funcionamento da clínica."
+            raise RegraNegocioError("Horário do atendimento está fora do expediente da clínica.")
 
         novo_atendimento = Atendimento(self.id_contador_atendimento, clinica, paciente, profissional, data_atend, inicio, fim, tipo, valor)
         self.atendimentos[self.id_contador_atendimento] = novo_atendimento
         clinica.atendimentos.append(novo_atendimento)
         
         self.id_contador_atendimento += 1
-        return f"Atendimento #{novo_atendimento.id} agendado com sucesso!"
+        return novo_atendimento.id
 
-    def registrar_pagamento(self, id_atend: int, data_pagto: date, valor: float, modalidade: ModalidadePagamento) -> str:
+    def alterar_valor_atendimento(self, id_atend: int, novo_valor_base: float) -> None:
         atend = self.atendimentos.get(id_atend)
-        if not atend:
-            return "Erro: Atendimento não encontrado."
+        if not atend: raise RegistroNaoEncontradoError(f"Atendimento #{id_atend} não encontrado.")
+        if novo_valor_base < atend.valor_pago:
+            raise RegraNegocioError(f"O novo valor (R$ {novo_valor_base:.2f}) não pode ser menor do que o valor já pago (R$ {atend.valor_pago:.2f}).")
+        atend.valor_base = novo_valor_base
 
-        if data_pagto > atend.data:
-            return "Erro: Pagamentos só podem ser realizados até a data do atendimento."
+    def excluir_atendimento(self, id_atend: int) -> None:
+        atend = self.atendimentos.get(id_atend)
+        if not atend: raise RegistroNaoEncontradoError(f"Atendimento #{id_atend} não encontrado.")
+        if atend.valor_pago > 0:
+            raise RegraNegocioError("Não é possível excluir um atendimento que já possui pagamentos registrados.")
+        
+        atend.clinica.atendimentos.remove(atend)
+        del self.atendimentos[id_atend]
+
+    def listar_atendimentos(self) -> List[Atendimento]:
+        return list(self.atendimentos.values())
+
+    def registrar_pagamento(self, id_atend: int, valor: float, modalidade: ModalidadePagamento) -> None:
+        atend = self.atendimentos.get(id_atend)
+        if not atend: raise RegistroNaoEncontradoError(f"Atendimento #{id_atend} não encontrado.")
+        
+        data_pagto = date.today()
+        if data_pagto < atend.data:
+            raise RegraNegocioError("Pagamentos não podem ser realizados antes da data do agendamento.")
 
         if valor > atend.valor_restante:
-            return f"Erro: Valor excede o saldo restante (Restante: R$ {atend.valor_restante:.2f})."
+            raise RegraNegocioError(f"Valor excede o saldo restante (Restante: R$ {atend.valor_restante:.2f}).")
 
         novo_pagto = Pagamento(data_pagto, valor, modalidade)
         atend.pagamentos.append(novo_pagto)
-        return f"Pagamento de R$ {valor:.2f} registrado. Restante: R$ {atend.valor_restante:.2f}"
 
-    def relatorio_clinica_mais_atendimentos(self):
-        if not self.clinicas: return "Nenhuma clínica cadastrada."
+    def alterar_ultimo_pagamento(self, id_atend: int, novo_valor: float) -> None:
+        atend = self.atendimentos.get(id_atend)
+        if not atend or not atend.pagamentos:
+            raise RegistroNaoEncontradoError("Nenhum pagamento encontrado para este atendimento.")
+        
+        ultimo_pagto = atend.pagamentos[-1]
+        saldo_sem_ultimo = atend.valor_restante + ultimo_pagto.valor_pago
+        
+        if novo_valor > saldo_sem_ultimo:
+            raise RegraNegocioError(f"O novo valor excede o limite disponível para alteração (Máximo: R$ {saldo_sem_ultimo:.2f}).")
+        
+        ultimo_pagto.valor_pago = novo_valor
+
+    def excluir_ultimo_pagamento(self, id_atend: int) -> None:
+        atend = self.atendimentos.get(id_atend)
+        if not atend or not atend.pagamentos:
+            raise RegistroNaoEncontradoError("Nenhum pagamento disponível para remoção.")
+        atend.pagamentos.pop()
+
+    def relatorio_clinica_mais_atendimentos(self) -> List[tuple]:
+        if not self.clinicas: return []
         resultado = sorted(self.clinicas.values(), key=lambda c: len(c.atendimentos), reverse=True)
         return [(c.nome, len(c.atendimentos)) for c in resultado]
+
+    def relatorio_faturamento_total(self) -> List[tuple]:
+        if not self.clinicas: return []
+        faturamento = []
+        for clinica in self.clinicas.values():
+            total = sum(atend.valor_pago for atend in clinica.atendimentos)
+            faturamento.append((clinica.nome, total))
+        return faturamento
 
 
 class ClinicaView:
@@ -187,99 +306,143 @@ class ClinicaView:
         self.controller = controller
 
     def exibir_menu(self):
-        print("\n" + "="*30)
-        print("  SISTEMA DE GESTÃO DE CLÍNICAS")
-        print("="*30)
-        print("1. Cadastrar Clínica")
-        print("2. Cadastrar Paciente")
-        print("3. Cadastrar Profissional")
-        print("4. Agendar Atendimento")
-        print("5. Registrar Pagamento")
-        print("6. Relatório: Clínicas Populares")
-        print("0. Sair")
-        
+        print("\n" + "="*40)
+        print("     SISTEMA DE GESTÃO MÉDICA (MVC)")
+        print("="*40)
+        print(" [1]   Cadastros (Clínicas, Pacientes, Profissionais)")
+        print(" [2]   Agendar Atendimento (CRUD)")
+        print(" [3]   Registrar/Gerenciar Pagamentos")
+        print(" [4]   Emissão de Relatórios Gerenciais")
+        print(" [0]   Sair")
+
     def executar(self):
         self._carga_inicial_testes()
-        
         while True:
             self.exibir_menu()
-            opcao = input("Escolha uma opção: ")
+            opcao = input("Escolha uma opção macro: ")
+            try:
+                if opcao == "1": self._submenu_cadastros()
+                elif opcao == "2": self._submenu_atendimentos()
+                elif opcao == "3": self._submenu_pagamentos()
+                elif opcao == "4": self._submenu_relatorios()
+                elif opcao == "0":
+                    print("Encerrando o sistema com segurança...")
+                    break
+                else: print("Opção inválida!")
+            except SistemaClinicaError as e:
+                print(f"\n⚠️  AVISO DO SISTEMA: {e}")
+            except ValueError:
+                print("\n❌ ERRO DE FORMATAÇÃO: Entrada numérica inválida.")
+            except Exception as e:
+                print(f"\n💥 ERRO CRÍTICO INESPERADO: {e}")
+
+    def _submenu_cadastros(self):
+        print("\n--- SUBMENU: GERENCIAR CADASTROS ---")
+        print("1. Inserir Clínica      | 2. Alterar Clínica      | 3. Excluir Clínica      | 4. Listar Clínicas")
+        print("5. Inserir Paciente     | 6. Alterar Paciente     | 7. Excluir Paciente     | 8. Listar Pacientes")
+        print("9. Inserir Profissional | 10. Alterar Profissional| 11. Excluir Profissional| 12. Listar Profissionais")
+        sub_op = input("Selecione a ação: ")
+
+        if sub_op == "1":
+            self.controller.cadastrar_clinica(input("Nome: "), input("Cidade: "), input("Descrição: "), int(input("Hora Abertura: ")), int(input("Hora Fechamento: ")))
+            print("Clínica cadastrada com sucesso!")
+        elif sub_op == "2":
+            self.controller.alterar_clinica(input("Nome da clínica a alterar: "), input("Nova Cidade: "), input("Nova Descrição: "), int(input("Nova Hora Abertura: ")), int(input("Nova Hora Fechamento: ")))
+            print("Clínica updated!")
+        elif sub_op == "3":
+            self.controller.excluir_clinica(input("Nome da clínica a remover: "))
+            print("Clínica excluída do banco de dados!")
+        elif sub_op == "4":
+            for c in self.controller.listar_clinicas():
+                print(f"Clínica: {c.nome} | Cidade: {c.cidade} | Horário: {c.hora_abertura} às {c.hora_fechamento}")
+        
+        elif sub_op == "5":
+            self.controller.cadastrar_paciente(input("Nome: "), input("Celular: "), input("CPF: "), int(input("Ano Nasc: ")), int(input("Mês Nasc: ")), int(input("Dia Nasc: ")))
+            print("Paciente cadastrado com sucesso!")
+        elif sub_op == "6":
+            self.controller.alterar_paciente(input("CPF do paciente a alterar: "), input("Novo Nome: "), input("Novo Celular: "), int(input("Novo Ano Nasc: ")), int(input("Novo Mês Nasc: ")), int(input("Novo Dia Nasc: ")))
+            print("Paciente updated!")
+        elif sub_op == "7":
+            self.controller.excluir_paciente(input("CPF do paciente a remover: "))
+            print("Paciente removido!")
+        elif sub_op == "8":
+            for p in self.controller.listar_pacientes():
+                print(f"Paciente: {p.nome} | CPF: {p.cpf} | Idade: {p.idade} anos")
+
+        elif sub_op == "9":
+            self.controller.cadastrar_profissional(input("Nome: "), input("Celular: "), input("CPF: "), int(input("Ano Nasc: ")), int(input("Mês Nasc: ")), int(input("Dia Nasc: ")), input("Especialidade: "), input("Registro (CRM): "))
+            print("Profissional cadastrado!")
+        elif sub_op == "10":
+            self.controller.alterar_profissional(input("CPF do profissional: "), input("Novo Nome: "), input("Novo Celular: "), input("Nova Especialidade: "), input("Novo Registro: "))
+            print("Profissional atualizado!")
+        elif sub_op == "11":
+            self.controller.excluir_profissional(input("CPF do profissional a remover: "))
+            print("Profissional deletado!")
+        elif sub_op == "12":
+            for prof in self.controller.listar_profissionais():
+                print(f"Dr(a): {prof.nome} | Esp: {prof.especialidade} | Registro: {prof.registro_profissional}")
+
+    def _submenu_atendimentos(self):
+        print("\n--- SUBMENU: GESTÃO DE ATENDIMENTOS ---")
+        print("1. Agendar Atendimento | 2. Alterar Valor Atendimento | 3. Cancelar/Excluir Atendimento | 4. Listar Agenda")
+        sub_op = input("Selecione a ação: ")
+
+        if sub_op == "1":
+            id_gerado = self.controller.agendar_atendimento(input("Nome da Clínica: "), input("CPF Paciente: "), input("CPF Profissional: "), float(input("Valor Base: R$ ")))
+            print(f"Atendimento #{id_gerado} agendado com sucesso!")
+        elif sub_op == "2":
+            self.controller.alterar_valor_atendimento(int(input("ID do Atendimento: ")), float(input("Novo Valor Base: R$ ")))
+            print("Preço alterado com sucesso.")
+        elif sub_op == "3":
+            self.controller.excluir_atendimento(int(input("ID do Atendimento para exclusão: ")))
+            print("Atendimento cancelado e removido do sistema.")
+        elif sub_op == "4":
+            for a in self.controller.listar_atendimentos():
+                print(f"ID #{a.id} | Paciente: {a.paciente.nome} | Clínica: {a.clinica.nome} | Total: R${a.valor_total:.2f} | Restante: R${a.valor_restante:.2f}")
+
+    def _submenu_pagamentos(self):
+        print("\n--- SUBMENU: GESTÃO DE PAGAMENTOS ---")
+        print("1. Efetuar Pagamento | 2. Alterar Último Pagamento | 3. Estornar Último Pagamento")
+        sub_op = input("Selecione a ação: ")
+
+        if sub_op == "1":
+            id_atend = int(input("ID do Atendimento: "))
+            valor = float(input("Valor a Pagar: R$ "))
+            print("1. Dinheiro | 2. PIX | 3. Cartão")
+            mod = input("Modo: ")
+            if mod == "1": modalidade = PagamentoDinheiro()
+            elif mod == "2": modalidade = PagamentoPix(input("CPF do Pagador: "))
+            elif mod == "3": modalidade = PagamentoCartao(input("Número Cartão: "), input("Bandeira: "))
+            else: raise RegraNegocioError("Modalidade de pagamento inexistente.")
             
-            if opcao == "1":
-                print("\n--- Cadastrar Clínica ---")
-                nome = input("Nome: ")
-                cidade = input("Cidade: ")
-                desc = input("Descrição: ")
-                h_abertura = time(int(input("Hora Abertura (Ex: 8): ")), 0)
-                h_fechamento = time(int(input("Hora Fechamento (Ex: 18): ")), 0)
-                res = self.controller.cadastrar_clinica(nome, cidade, desc, h_abertura, h_fechamento)
-                print(res)
+            self.controller.registrar_pagamento(id_atend, valor, modalidade)
+            print("Pagamento computado com sucesso!")
+        elif sub_op == "2":
+            self.controller.alterar_ultimo_pagamento(int(input("ID do Atendimento: ")), float(input("Novo Valor do Último Pagamento: R$ ")))
+            print("Valor corrigido!")
+        elif sub_op == "3":
+            self.controller.excluir_ultimo_pagamento(int(input("ID do Atendimento: ")))
+            print("Último pagamento excluído/estornado!")
 
-            elif opcao == "2":
-                print("\n--- Cadastrar Paciente ---")
-                nome = input("Nome: ")
-                celular = input("Celular: ")
-                cpf = input("CPF: ")
-                ano = int(input("Ano Nascimento: "))
-                mes = int(input("Mês Nascimento: "))
-                dia = int(input("Dia Nascimento: "))
-                res = self.controller.cadastrar_paciente(nome, celular, cpf, date(ano, mes, dia))
-                print(res)
+    def _submenu_relatorios(self):
+        print("\n--- SUBMENU: RELATÓRIOS GERENCIAIS ---")
+        print("1. Clínicas Mais Populares (Volume de Atendimentos) | 2. Faturamento Consolidado por Clínica")
+        sub_op = input("Selecione: ")
 
-            elif opcao == "4":
-                print("\n--- Agendar Atendimento ---")
-                clinica = input("Nome da Clínica: ")
-                cpf_pac = input("CPF Paciente: ")
-                cpf_prof = input("CPF Profissional: ")
-                valor = float(input("Valor Base: R$ "))
-                res = self.controller.agendar_atendimento(
-                    clinica, cpf_pac, cpf_prof, date.today(), time(10, 0), time(11, 0), "Consulta", valor
-                )
-                print(res)
-
-            elif opcao == "5":
-                print("\n--- Registrar Pagamento ---")
-                id_atend = int(input("ID do Atendimento: "))
-                valor = float(input("Valor a Pagar: R$ "))
-                print("1. Dinheiro | 2. PIX | 3. Cartão")
-                mod = input("Modo: ")
-                
-                if mod == "1":
-                    modalidade = PagamentoDinheiro()
-                elif mod == "2":
-                    cpf = input("CPF do Pagador: ")
-                    modalidade = PagamentoPix(cpf)
-                elif mod == "3":
-                    num = input("Número Cartão: ")
-                    bandeira = input("Bandeira: ")
-                    modalidade = PagamentoCartao(num, bandeira)
-                else:
-                    print("Opção de modalidade inválida. Usando Dinheiro por padrão.")
-                    modalidade = PagamentoDinheiro()
-                
-                res = self.controller.registrar_pagamento(id_atend, date.today(), valor, modalidade)
-                print(res)
-
-            elif opcao == "6":
-                print("\n--- Relatório: Clínicas com Mais Atendimentos ---")
-                dados = self.controller.relatorio_clinica_mais_atendimentos()
-                if isinstance(dados, list):
-                    for nome, qtd in dados:
-                        print(f"Clínica: {nome} | Atendimentos: {qtd}")
-                else:
-                    print(dados)
-
-            elif opcao == "0":
-                print("Encerrando o sistema...")
-                break
-            else:
-                print("Opção inválida.")
+        if sub_op == "1":
+            dados = self.controller.relatorio_clinica_mais_atendimentos()
+            if not dados: print("Sem dados consolidados.")
+            for nome, qtd in dados: print(f"Clínica: {nome} | Atendimentos Realizados: {qtd}")
+        elif sub_op == "2":
+            dados = self.controller.relatorio_faturamento_total()
+            if not dados: print("Sem dados de faturamento.")
+            for nome, total in dados: print(f"Clínica: {nome} | Faturamento Total Acumulado: R$ {total:.2f}")
 
     def _carga_inicial_testes(self):
-        self.controller.cadastrar_clinica("Alpha", "Florianópolis", "Geral", time(8,0), time(18,0))
-        self.controller.cadastrar_paciente("Carlos Silva", "9999-9999", "123", date(1990, 5, 15))
-        self.controller.cadastrar_paciente("Bebê João", "8888-8888", "321", date(2022, 1, 1))
-        self.controller.cadastrar_profissional("Dra. Ana", "7777-7777", "456", date(1985, 3, 20), "Cardiologia", "CRM-123")
+        self.controller.cadastrar_clinica("Alpha", "Florianópolis", "Geral", 8, 18)
+        self.controller.cadastrar_paciente("Carlos Silva", "9999-9999", "123", 1990, 5, 15)
+        self.controller.cadastrar_paciente("Bebê João", "8888-8888", "321", 2022, 1, 1)
+        self.controller.cadastrar_profissional("Dra. Ana", "7777-7777", "456", 1985, 3, 20, "Cardiologia", "CRM-123")
 
 
 if __name__ == "__main__":
