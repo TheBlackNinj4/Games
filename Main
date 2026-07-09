@@ -1,20 +1,53 @@
-from datetime import datetime, date, time
-from typing import List, Dict
+import os
+import pickle
+import re
+from datetime import date, time, datetime
+from typing import List, Dict, Any
 from abc import ABC, abstractmethod
+import FreeSimpleGUI as sg # type: ignore
 
+COR_FUNDO_JANELA = "#F2F7F4"
+COR_FUNDO_ABAS = "#E6EFF2"
+COR_TEXTO = "#111827"  
+COR_BOTAO_PRINCIPAL = "#1D4ED8" 
+COR_BOTAO_TEXTO = "#FFFFFF"
+COR_TABELA_ALTERNADA = "#F8FAFC"
 
-class SistemaClinicaError(Exception):
-    pass
+sg.theme_background_color(COR_FUNDO_JANELA)
+sg.theme_element_background_color("#FFFFFF") 
+sg.theme_text_color(COR_TEXTO)
+sg.theme_input_background_color("#FFFFFF")
+sg.theme_input_text_color(COR_TEXTO)
+sg.theme_button_color((COR_BOTAO_TEXTO, COR_BOTAO_PRINCIPAL))
 
-class RegistroNaoEncontradoError(SistemaClinicaError):
-    pass
+sg.set_options(text_element_background_color=COR_FUNDO_ABAS, text_color=COR_TEXTO)
 
-class RegistroDuplicadoError(SistemaClinicaError):
-    pass
+def formatar_cpf(texto: str) -> str:
+    digitos = re.sub(r'\D', '', texto)[:11]
+    if len(digitos) <= 3:
+        return digitos
+    elif len(digitos) <= 6:
+        return f"{digitos[:3]}.{digitos[3:]}"
+    elif len(digitos) <= 9:
+        return f"{digitos[:3]}.{digitos[3:6]}.{digitos[6:]}"
+    else:
+        return f"{digitos[:3]}.{digitos[3:6]}.{digitos[6:9]}-{digitos[9:]}"
 
-class RegraNegocioError(SistemaClinicaError):
-    pass
+def formatar_celular(texto: str) -> str:
+    digitos = re.sub(r'\D', '', texto)[:11]
+    if len(digitos) <= 2:
+        return digitos
+    elif len(digitos) <= 6:
+        return f"({digitos[:2]}) {digitos[2:]}"
+    elif len(digitos) <= 10:
+        return f"({digitos[:2]}) {digitos[2:6]}-{digitos[6:]}"
+    else:
+        return f"({digitos[:2]}) {digitos[2:7]}-{digitos[7:]}"
 
+class SistemaClinicaError(Exception): pass
+class RegistroNaoEncontradoError(SistemaClinicaError): pass
+class RegistroDuplicadoError(SistemaClinicaError): pass
+class RegraNegocioError(SistemaClinicaError): pass
 
 class Clinica:
     def __init__(self, nome: str, cidade: str, descricao: str, hora_abertura: time, hora_fechamento: time):
@@ -23,14 +56,17 @@ class Clinica:
         self.descricao = descricao
         self.hora_abertura = hora_abertura
         self.hora_fechamento = hora_fechamento
-        self.atendimentos: List['Atendimento'] = []
 
+class TipoAtendimento:
+    def __init__(self, nome: str, preco_base: float):
+        self.nome = nome
+        self.preco_base = preco_base
 
-class Pessoa:
+class Pessoa(ABC):
     def __init__(self, nome: str, celular: str, cpf: str, data_nascimento: date):
         self.nome = nome
-        self.celular = celular
-        self.cpf = cpf
+        self.celular = re.sub(r'\D', '', celular)
+        self.cpf = re.sub(r'\D', '', cpf)
         self.data_nascimento = data_nascimento
 
     @property
@@ -40,11 +76,9 @@ class Pessoa:
             (hoje.month, hoje.day) < (self.data_nascimento.month, self.data_nascimento.day)
         )
 
-
 class Paciente(Pessoa):
     def pode_realizar_atendimento_independente(self) -> bool:
         return self.idade >= 18
-
 
 class ProfissionalSaude(Pessoa):
     def __init__(self, nome: str, celular: str, cpf: str, data_nascimento: date, especialidade: str, registro_profissional: str):
@@ -52,41 +86,28 @@ class ProfissionalSaude(Pessoa):
         self.especialidade = especialidade
         self.registro_profissional = registro_profissional
 
-
 class Procedimento:
-    def __init__(self, descricao: str, custo: float, profissional_responsavel: ProfissionalSaude):
+    def __init__(self, descricao: str, custo: float, profesional_responsavel: ProfissionalSaude):
         self.descricao = descricao
         self.custo = custo
-        self.profissional_responsavel = profissional_responsavel
-
+        self.profissional_responsavel = profesional_responsavel
 
 class ModalidadePagamento(ABC):
     @abstractmethod
-    def __str__(self) -> str:
-        pass
-
+    def __str__(self) -> str: pass
 
 class PagamentoDinheiro(ModalidadePagamento):
-    def __str__(self): 
-        return "Dinheiro"
-
+    def __str__(self): return "Dinheiro"
 
 class PagamentoPix(ModalidadePagamento):
-    def __init__(self, cpf_pagador: str): 
-        self.cpf_pagador = cpf_pagador
-        
-    def __str__(self): 
-        return f"PIX (CPF: {self.cpf_pagador})"
-
+    def __init__(self, cpf_pagador: str): self.cpf_pagador = re.sub(r'\D', '', cpf_pagador)
+    def __str__(self): return f"PIX (CPF: {self.cpf_pagador})"
 
 class PagamentoCartao(ModalidadePagamento):
     def __init__(self, numero_cartao: str, bandeira: str):
-        self.numero_cartao = numero_cartao
+        self.numero_cartao = re.sub(r'\D', '', numero_cartao)
         self.bandeira = bandeira
-        
-    def __str__(self): 
-        return f"Cartão {self.bandeira} (*{self.numero_cartao[-4:]})"
-
+    def __str__(self): return f"Cartão {self.bandeira} (*{self.numero_cartao[-4:] if len(self.numero_cartao)>=4 else self.numero_cartao})"
 
 class Pagamento:
     def __init__(self, data: date, valor_pago: float, modalidade: ModalidadePagamento):
@@ -94,27 +115,24 @@ class Pagamento:
         self.valor_pago = valor_pago
         self.modalidade = modalidade
 
-
 class Atendimento:
     def __init__(self, id_atendimento: int, clinica: Clinica, paciente: Paciente, profissional: ProfissionalSaude, 
-                 data: date, hora_inicio: time, hora_fim: time, tipo: str, valor_base: float):
-        
+                 tipo_atendimento: TipoAtendimento, data: date, hora_inicio: time, hora_fim: time):
         self.id = id_atendimento
         self.clinica = clinica
         self.paciente = paciente
         self.profissional = profissional
+        self.tipo_atendimento = tipo_atendimento
         self.data = data
         self.hora_inicio = hora_inicio
         self.hora_fim = hora_fim
-        self.tipo = tipo
-        self.valor_base = valor_base
         self.procedimentos_realizados: List[Procedimento] = []
         self.pagamentos: List[Pagamento] = []
 
     @property
     def valor_total(self) -> float:
         custo_procedimentos = sum(p.custo for p in self.procedimentos_realizados)
-        return self.valor_base + custo_procedimentos
+        return self.tipo_atendimento.preco_base + custo_procedimentos
 
     @property
     def valor_pago(self) -> float:
@@ -122,330 +140,465 @@ class Atendimento:
 
     @property
     def valor_restante(self) -> float:
-        return self.valor_total - self.valor_pago
+        return max(0.0, self.valor_total - self.valor_pago)
 
+class DAO(ABC):
+    def __init__(self, nome_arquivo=""):
+        diretorio_atual = os.path.dirname(os.path.abspath(__file__))
+        self.fonte_dados = os.path.join(diretorio_atual, nome_arquivo)
+        self._memoria = {}
+        self._carregar()
+
+    def _carregar(self):
+        if os.path.exists(self.fonte_dados):
+            try:
+                with open(self.fonte_dados, 'rb') as f:
+                    self._memoria = pickle.load(f)
+            except:
+                self._memoria = {}
+
+    def _salvar(self):
+        with open(self.fonte_dados, 'wb') as f:
+            pickle.dump(self._memoria, f)
+
+    def adicionar(self, chave, objeto):
+        self._memoria[chave] = objeto
+        self._salvar()
+
+    def obter(self, chave):
+        return self._memoria.get(chave)
+
+    def remover(self, chave):
+        if chave in self._memoria:
+            del self._memoria[chave]
+            self._salvar()
+
+    def obter_todos(self):
+        return list(self._memoria.values())
+
+class ClinicaDAO(DAO):
+    def __init__(self): super().__init__("clinicas.pkl")
+
+class PacienteDAO(DAO):
+    def __init__(self): super().__init__("pacientes.pkl")
+
+class ProfissionalDAO(DAO):
+    def __init__(self): super().__init__("profissionais.pkl")
+
+class TipoAtendimentoDAO(DAO):
+    def __init__(self): super().__init__("tipos_atendimento.pkl")
+
+class AtendimentoDAO(DAO):
+    def __init__(self): super().__init__("atendimentos.pkl")
 
 class ClinicaController:
     def __init__(self):
-        self.clinicas: Dict[str, Clinica] = {}
-        self.pacientes: Dict[str, Paciente] = {}
-        self.profissionais: Dict[str, ProfissionalSaude] = {}
-        self.atendimentos: Dict[int, Atendimento] = {}
-        self.id_contador_atendimento = 1
+        self.clinica_dao = ClinicaDAO()
+        self.paciente_dao = PacienteDAO()
+        self.profissional_dao = ProfissionalDAO()
+        self.tipo_atendimento_dao = TipoAtendimentoDAO()
+        self.atendimento_dao = AtendimentoDAO()
+        self.id_contador = max([a.id for a in self.atendimento_dao.obter_todos()] + [0]) + 1
 
     def cadastrar_clinica(self, nome: str, cidade: str, descricao: str, h_abertura: int, h_fechamento: int) -> None:
-        if nome in self.clinicas:
-            raise RegistroDuplicadoError(f"Clínica '{nome}' já está cadastrada.")
-        abertura = time(h_abertura, 0)
-        fechamento = time(h_fechamento, 0)
-        self.clinicas[nome] = Clinica(nome, cidade, descricao, abertura, fechamento)
+        if not nome: raise RegraNegocioError("Nome inválido.")
+        if self.clinica_dao.obter(nome): raise RegistroDuplicadoError("Clínica já cadastrada.")
+        self.clinica_dao.adicionar(nome, Clinica(nome, cidade, descricao, time(h_abertura, 0), time(h_fechamento, 0)))
 
-    def alterar_clinica(self, nome: str, nova_cidade: str, nova_descricao: str, h_abertura: int, h_fechamento: int) -> None:
-        if nome not in self.clinicas:
-            raise RegistroNaoEncontradoError(f"Clínica '{nome}' não encontrada para alteração.")
-        clinica = self.clinicas[nome]
-        clinica.cidade = nova_cidade
-        clinica.descricao = nova_descricao
-        clinica.hora_abertura = time(h_abertura, 0)
-        clinica.hora_fechamento = time(h_fechamento, 0)
+    def alterar_clinica(self, nome: str, city: str, descricao: str, h_abertura: int, h_fechamento: int) -> None:
+        if not self.clinica_dao.obter(nome): raise RegistroNaoEncontradoError("Clínica não encontrada.")
+        self.clinica_dao.adicionar(nome, Clinica(nome, city, descricao, time(h_abertura, 0), time(h_fechamento, 0)))
 
     def excluir_clinica(self, nome: str) -> None:
-        if nome not in self.clinicas:
-            raise RegistroNaoEncontradoError(f"Clínica '{nome}' não encontrada para exclusão.")
-        if self.clinicas[nome].atendimentos:
-            raise RegraNegocioError("Não é possível excluir uma clínica que possui atendimentos vinculados.")
-        del self.clinicas[nome]
+        if not self.clinica_dao.obter(nome): raise RegistroNaoEncontradoError("Clínica não encontrada.")
+        self.clinica_dao.remover(nome)
 
-    def listar_clinicas(self) -> List[Clinica]:
-        return list(self.clinicas.values())
+    def listar_clinicas(self) -> List[Clinica]: return self.clinica_dao.obter_todos()
 
-    def cadastrar_paciente(self, nome: str, celular: str, cpf: str, ano: int, mes: int, dia: int) -> None:
-        if cpf in self.pacientes:
-            raise RegistroDuplicadoError(f"Paciente com o CPF {cpf} já existe.")
-        data_nasc = date(ano, mes, dia)
-        self.pacientes[cpf] = Paciente(nome, celular, cpf, data_nasc)
+    def cadastrar_paciente(self, nome: str, celular: str, cpf: str, data_nasc: date) -> None:
+        num_cpf = re.sub(r'\D', '', cpf)
+        if not num_cpf: raise RegraNegocioError("CPF obrigatório.")
+        if self.paciente_dao.obter(num_cpf): raise RegistroDuplicadoError("Paciente já existe.")
+        self.paciente_dao.adicionar(num_cpf, Paciente(nome, celular, num_cpf, data_nasc))
 
-    def alterar_paciente(self, cpf: str, novo_nome: str, novo_celular: str, ano: int, mes: int, dia: int) -> None:
-        if cpf not in self.pacientes:
-            raise RegistroNaoEncontradoError(f"Paciente com CPF {cpf} não encontrado.")
-        paciente = self.pacientes[cpf]
-        paciente.nome = novo_nome
-        paciente.celular = novo_celular
-        paciente.data_nascimento = date(ano, mes, dia)
+    def alterar_paciente(self, nome: str, celular: str, cpf: str, data_nasc: date) -> None:
+        num_cpf = re.sub(r'\D', '', cpf)
+        if not self.paciente_dao.obter(num_cpf): raise RegistroNaoEncontradoError("Paciente não encontrado.")
+        self.paciente_dao.adicionar(num_cpf, Paciente(nome, celular, num_cpf, data_nasc))
 
     def excluir_paciente(self, cpf: str) -> None:
-        if cpf not in self.pacientes:
-            raise RegistroNaoEncontradoError(f"Paciente com CPF {cpf} não encontrado.")
-        for atend in self.atendimentos.values():
-            if atend.paciente.cpf == cpf:
-                raise RegraNegocioError("Não é possível excluir um paciente com histórico de atendimentos.")
-        del self.pacientes[cpf]
+        num_cpf = re.sub(r'\D', '', cpf)
+        self.paciente_dao.remover(num_cpf)
 
-    def listar_pacientes(self) -> List[Paciente]:
-        return list(self.pacientes.values())
+    def listar_pacientes(self) -> List[Paciente]: return self.paciente_dao.obter_todos()
 
-    def cadastrar_profissional(self, nome: str, celular: str, cpf: str, ano: int, mes: int, dia: int, esp: str, registro: str) -> None:
-        if cpf in self.profissionais:
-            raise RegistroDuplicadoError(f"Profissional com o CPF {cpf} já existe.")
-        self.profissionais[cpf] = ProfissionalSaude(nome, celular, cpf, date(ano, mes, dia), esp, registro)
+    def cadastrar_profissional(self, nome: str, celular: str, cpf: str, data_nasc: date, esp: str, reg: str) -> None:
+        num_cpf = re.sub(r'\D', '', cpf)
+        if self.profissional_dao.obter(num_cpf): raise RegistroDuplicadoError("Profissional já existe.")
+        self.profissional_dao.adicionar(num_cpf, ProfissionalSaude(nome, celular, num_cpf, data_nasc, esp, reg))
 
-    def alterar_profissional(self, cpf: str, novo_nome: str, novo_celular: str, esp: str, registro: str) -> None:
-        if cpf not in self.profissionais:
-            raise RegistroNaoEncontradoError(f"Profissional com CPF {cpf} não encontrado.")
-        prof = self.profissionais[cpf]
-        prof.nome = novo_nome
-        prof.celular = novo_celular
-        prof.especialidade = esp
-        prof.registro_profissional = registro
+    def alterar_profissional(self, nome: str, celular: str, cpf: str, data_nasc: date, esp: str, reg: str) -> None:
+        num_cpf = re.sub(r'\D', '', cpf)
+        if not self.profissional_dao.obter(num_cpf): raise RegistroNaoEncontradoError("Profissional não cadastrado.")
+        self.profissional_dao.adicionar(num_cpf, ProfissionalSaude(nome, celular, num_cpf, data_nasc, esp, reg))
 
     def excluir_profissional(self, cpf: str) -> None:
-        if cpf not in self.profissionais:
-            raise RegistroNaoEncontradoError(f"Profissional com CPF {cpf} não encontrado.")
-        for atend in self.atendimentos.values():
-            if atend.profissional.cpf == cpf:
-                raise RegraNegocioError("Não é possível excluir um profissional com atendimentos vinculados.")
-        del self.profissionais[cpf]
+        num_cpf = re.sub(r'\D', '', cpf)
+        self.profissional_dao.remover(num_cpf)
 
-    def listar_profissionais(self) -> List[ProfissionalSaude]:
-        return list(self.profissionais.values())
+    def listar_profissionais(self) -> List[ProfissionalSaude]: return self.profissional_dao.obter_todos()
 
-    def agendar_atendimento(self, nome_clinica: str, cpf_paciente: str, cpf_prof: str, valor: float, tipo: str = "Consulta") -> int:
-        clinica = self.clinicas.get(nome_clinica)
-        paciente = self.pacientes.get(cpf_paciente)
-        profissional = self.profissionais.get(cpf_prof)
+    def cadastrar_tipo_atendimento(self, nome: str, preco_base: float) -> None:
+        if not nome: raise RegraNegocioError("Nome inválido.")
+        if self.tipo_atendimento_dao.obter(nome): raise RegistroDuplicadoError("Tipo já cadastrado.")
+        self.tipo_atendimento_dao.adicionar(nome, TipoAtendimento(nome, preco_base))
 
-        if not clinica: raise RegistroNaoEncontradoError(f"Clínica '{nome_clinica}' não encontrada.")
-        if not paciente: raise RegistroNaoEncontradoError(f"Paciente com CPF {cpf_paciente} não encontrado.")
-        if not profissional: raise RegistroNaoEncontradoError(f"Profissional com CPF {cpf_prof} não encontrado.")
+    def alterar_tipo_atendimento(self, nome: str, preco_base: float) -> None:
+        if not self.tipo_atendimento_dao.obter(nome): raise RegistroNaoEncontradoError("Tipo não encontrado.")
+        self.tipo_atendimento_dao.adicionar(nome, TipoAtendimento(nome, preco_base))
 
-        if not paciente.pode_realizar_atendimento_independente():
-            raise RegraNegocioError("Paciente menor de 18 anos não pode realizar atendimento de forma independente.")
+    def excluir_tipo_atendimento(self, nome: str) -> None:
+        self.tipo_atendimento_dao.remover(nome)
 
-        data_atend = date.today()
-        inicio = time(10, 0)
-        fim = time(11, 0)
+    def listar_tipos_atendimento(self) -> List[TipoAtendimento]: return self.tipo_atendimento_dao.obter_todos()
 
-        if inicio < clinica.hora_abertura or fim > clinica.hora_fechamento:
-            raise RegraNegocioError("Horário do atendimento está fora do expediente da clínica.")
+    def agendar_atendimento(self, nome_clinica: str, cpf_paciente: str, cpf_prof: str, nome_tipo: str, h_inicio: int, h_fim: int) -> int:
+        clinica = self.clinica_dao.obter(nome_clinica)
+        paciente = self.paciente_dao.obter(re.sub(r'\D', '', cpf_paciente))
+        prof = self.profissional_dao.obter(re.sub(r'\D', '', cpf_prof))
+        tipo_at = self.tipo_atendimento_dao.obter(nome_tipo)
 
-        novo_atendimento = Atendimento(self.id_contador_atendimento, clinica, paciente, profissional, data_atend, inicio, fim, tipo, valor)
-        self.atendimentos[self.id_contador_atendimento] = novo_atendimento
-        clinica.atendimentos.append(novo_atendimento)
+        if not all([clinica, paciente, prof, tipo_at]): raise RegistroNaoEncontradoError("Entidades vinculadas inválidas.")
+        if not paciente.pode_realizar_atendimento_independente(): raise RegraNegocioError("Paciente menor de idade sem permissão independente.")
+
+        inicio, fim = time(h_inicio, 0), time(h_fim, 0)
+        if inicio >= fim: raise RegraNegocioError("Horário final deve ser maior que o inicial.")
+
+        novo = Atendimento(self.id_contador, clinica, paciente, prof, tipo_at, date.today(), inicio, fim)
+        self.atendimento_dao.adicionar(novo.id, novo)
+        self.id_contador += 1
+        return novo.id
+
+    def alterar_atendimento(self, id_atend: int, nome_clinica: str, cpf_paciente: str, cpf_prof: str, nome_tipo: str, h_inicio: int, h_fim: int) -> None:
+        atend = self.atendimento_dao.obter(id_atend)
+        if not atend: raise RegistroNaoEncontradoError("Agendamento não localizado.")
         
-        self.id_contador_atendimento += 1
-        return novo_atendimento.id
-
-    def alterar_valor_atendimento(self, id_atend: int, novo_valor_base: float) -> None:
-        atend = self.atendimentos.get(id_atend)
-        if not atend: raise RegistroNaoEncontradoError(f"Atendimento #{id_atend} não encontrado.")
-        if novo_valor_base < atend.valor_pago:
-            raise RegraNegocioError(f"O novo valor (R$ {novo_valor_base:.2f}) não pode ser menor do que o valor já pago (R$ {atend.valor_pago:.2f}).")
-        atend.valor_base = novo_valor_base
+        atend.clinica = self.clinica_dao.obter(nome_clinica)
+        atend.paciente = self.paciente_dao.obter(re.sub(r'\D', '', cpf_paciente))
+        atend.profissional = self.profissional_dao.obter(re.sub(r'\D', '', cpf_prof))
+        atend.tipo_atendimento = self.tipo_atendimento_dao.obter(nome_tipo)
+        atend.hora_inicio = time(h_inicio, 0)
+        atend.hora_fim = time(h_fim, 0)
+        self.atendimento_dao.adicionar(atend.id, atend)
 
     def excluir_atendimento(self, id_atend: int) -> None:
-        atend = self.atendimentos.get(id_atend)
-        if not atend: raise RegistroNaoEncontradoError(f"Atendimento #{id_atend} não encontrado.")
-        if atend.valor_pago > 0:
-            raise RegraNegocioError("Não é possível excluir um atendimento que já possui pagamentos registrados.")
-        
-        atend.clinica.atendimentos.remove(atend)
-        del self.atendimentos[id_atend]
+        self.atendimento_dao.remover(id_atend)
 
-    def listar_atendimentos(self) -> List[Atendimento]:
-        return list(self.atendimentos.values())
+    def listar_atendimentos(self) -> List[Atendimento]: return self.atendimento_dao.obter_todos()
+
+    def adicionar_procedimento_no_atendimento(self, id_atend: int, desc: str, custo: float, cpf_prof: str) -> None:
+        atend = self.atendimento_dao.obter(id_atend)
+        prof = self.profissional_dao.obter(re.sub(r'\D', '', cpf_prof))
+        if not atend or not prof: raise RegistroNaoEncontradoError("Atendimento ou Profissional inválido.")
+        
+        atend.procedimentos_realizados.append(Procedimento(desc, custo, prof))
+        self.atendimento_dao.adicionar(atend.id, atend)
 
     def registrar_pagamento(self, id_atend: int, valor: float, modalidade: ModalidadePagamento) -> None:
-        atend = self.atendimentos.get(id_atend)
-        if not atend: raise RegistroNaoEncontradoError(f"Atendimento #{id_atend} não encontrado.")
+        atend = self.atendimento_dao.obter(id_atend)
+        if not atend: raise RegistroNaoEncontradoError("Atendimento não encontrado.")
+        if valor > atend.valor_restante: raise RegraNegocioError("Valor superior ao saldo devedor.")
         
-        data_pagto = date.today()
-        if data_pagto < atend.data:
-            raise RegraNegocioError("Pagamentos não podem ser realizados antes da data do agendamento.")
-
-        if valor > atend.valor_restante:
-            raise RegraNegocioError(f"Valor excede o saldo restante (Restante: R$ {atend.valor_restante:.2f}).")
-
-        novo_pagto = Pagamento(data_pagto, valor, modalidade)
-        atend.pagamentos.append(novo_pagto)
-
-    def alterar_ultimo_pagamento(self, id_atend: int, novo_valor: float) -> None:
-        atend = self.atendimentos.get(id_atend)
-        if not atend or not atend.pagamentos:
-            raise RegistroNaoEncontradoError("Nenhum pagamento encontrado para este atendimento.")
-        
-        ultimo_pagto = atend.pagamentos[-1]
-        saldo_sem_ultimo = atend.valor_restante + ultimo_pagto.valor_pago
-        
-        if novo_valor > saldo_sem_ultimo:
-            raise RegraNegocioError(f"O novo valor excede o limite disponível para alteração (Máximo: R$ {saldo_sem_ultimo:.2f}).")
-        
-        ultimo_pagto.valor_pago = novo_valor
-
-    def excluir_ultimo_pagamento(self, id_atend: int) -> None:
-        atend = self.atendimentos.get(id_atend)
-        if not atend or not atend.pagamentos:
-            raise RegistroNaoEncontradoError("Nenhum pagamento disponível para remoção.")
-        atend.pagamentos.pop()
-
-    def relatorio_clinica_mais_atendimentos(self) -> List[tuple]:
-        if not self.clinicas: return []
-        resultado = sorted(self.clinicas.values(), key=lambda c: len(c.atendimentos), reverse=True)
-        return [(c.nome, len(c.atendimentos)) for c in resultado]
+        atend.pagamentos.append(Pagamento(date.today(), valor, modalidade))
+        self.atendimento_dao.adicionar(atend.id, atend)
 
     def relatorio_faturamento_total(self) -> List[tuple]:
-        if not self.clinicas: return []
-        faturamento = []
-        for clinica in self.clinicas.values():
-            total = sum(atend.valor_pago for atend in clinica.atendimentos)
-            faturamento.append((clinica.nome, total))
-        return faturamento
+        resumo = {c.nome: {"total": 0.0, "qtd": 0} for c in self.clinica_dao.obter_todos()}
+        for a in self.atendimento_dao.obter_todos():
+            if a.clinica.nome in resumo:
+                resumo[a.clinica.nome]["total"] += a.valor_pago
+                resumo[a.clinica.nome]["qtd"] += 1
+        return [(k, v["total"], v["qtd"]) for k, v in resumo.items()]
 
-
-class ClinicaView:
+class ClinicaGUI:
     def __init__(self, controller: ClinicaController):
         self.controller = controller
 
-    def exibir_menu(self):
-        print("\n" + "="*40)
-        print("     SISTEMA DE GESTÃO MÉDICA (MVC)")
-        print("="*40)
-        print(" [1]   Cadastros (Clínicas, Pacientes, Profissionais)")
-        print(" [2]   Agendar Atendimento (CRUD)")
-        print(" [3]   Registrar/Gerenciar Pagamentos")
-        print(" [4]   Emissão de Relatórios Gerenciais")
-        print(" [0]   Sair")
+    def _analisar_data(self, texto_data: str) -> date:
+        try: return datetime.strptime(texto_data.strip(), "%d/%m/%Y").date()
+        except: raise RegraNegocioError("Data inválida. Use DD/MM/AAAA.")
 
-    def executar(self):
-        self._carga_inicial_testes()
-        while True:
-            self.exibir_menu()
-            opcao = input("Escolha uma opção macro: ")
-            try:
-                if opcao == "1": self._submenu_cadastros()
-                elif opcao == "2": self._submenu_atendimentos()
-                elif opcao == "3": self._submenu_pagamentos()
-                elif opcao == "4": self._submenu_relatorios()
-                elif opcao == "0":
-                    print("Encerrando o sistema com segurança...")
-                    break
-                else: print("Opção inválida!")
-            except SistemaClinicaError as e:
-                print(f"\n⚠️  AVISO DO SISTEMA: {e}")
-            except ValueError:
-                print("\n❌ ERRO DE FORMATAÇÃO: Entrada numérica inválida.")
-            except Exception as e:
-                print(f"\n💥 ERRO CRÍTICO INESPERADO: {e}")
+    def construir_layout(self):
+        config_tabela = {
+            "auto_size_columns": True, 
+            "num_rows": 6, 
+            "expand_x": True, 
+            "enable_events": True,
+            "background_color": "#FFFFFF",
+            "text_color": COR_TEXTO,
+            "alternating_row_color": COR_TABELA_ALTERNADA,
+            "header_background_color": "#DFEBF0",
+            "header_text_color": COR_TEXTO
+        }
 
-    def _submenu_cadastros(self):
-        print("\n--- SUBMENU: GERENCIAR CADASTROS ---")
-        print("1. Inserir Clínica      | 2. Alterar Clínica      | 3. Excluir Clínica      | 4. Listar Clínicas")
-        print("5. Inserir Paciente     | 6. Alterar Paciente     | 7. Excluir Paciente     | 8. Listar Pacientes")
-        print("9. Inserir Profissional | 10. Alterar Profissional| 11. Excluir Profissional| 12. Listar Profissionais")
-        sub_op = input("Selecione a ação: ")
+        config_abas = {
+            "tab_background_color": "#D1DCE0", 
+            "title_color": "#4B5563",
+            "selected_background_color": COR_FUNDO_ABAS, 
+            "selected_title_color": "#000000", 
+            "expand_x": True
+        }
 
-        if sub_op == "1":
-            self.controller.cadastrar_clinica(input("Nome: "), input("Cidade: "), input("Descrição: "), int(input("Hora Abertura: ")), int(input("Hora Fechamento: ")))
-            print("Clínica cadastrada com sucesso!")
-        elif sub_op == "2":
-            self.controller.alterar_clinica(input("Nome da clínica a alterar: "), input("Nova Cidade: "), input("Nova Descrição: "), int(input("Nova Hora Abertura: ")), int(input("Nova Hora Fechamento: ")))
-            print("Clínica updated!")
-        elif sub_op == "3":
-            self.controller.excluir_clinica(input("Nome da clínica a remover: "))
-            print("Clínica excluída do banco de dados!")
-        elif sub_op == "4":
-            for c in self.controller.listar_clinicas():
-                print(f"Clínica: {c.nome} | Cidade: {c.cidade} | Horário: {c.hora_abertura} às {c.hora_fechamento}")
+        sub_tab_clinicas = [
+            [sg.Text("Nome:"), sg.Input(key="-CLI_NOME-", size=(20,1)), sg.Text("Cidade:"), sg.Input(key="-CLI_CIDADE-", size=(20,1))],
+            [sg.Text("Descrição:"), sg.Input(key="-CLI_DESC-", size=(40,1))],
+            [sg.Text("Abertura (H):"), sg.Input(key="-CLI_ABER-", size=(10,1)), sg.Text("Fechamento (H):"), sg.Input(key="-CLI_FECH-", size=(10,1))],
+            [sg.Button("Cadastrar", key="-BTN_CLI-"), sg.Button("Alterar", key="-BTN_CLI_ALT-"), sg.Button("Excluir", key="-BTN_CLI_EXC-")],
+            [sg.Table(values=[], headings=["Nome", "Cidade", "Horário"], key="-TAB_CLINICAS-", **config_tabela)]
+        ]
+
+        sub_tab_tipos = [
+            [sg.Text("Nome do Tipo:"), sg.Input(key="-TP_NOME-", size=(25,1)), sg.Text("Preço Base: R$"), sg.Input(key="-TP_PRECO-", size=(15,1))],
+            [sg.Button("Cadastrar Tipo", key="-BTN_TP-"), sg.Button("Alterar Tipo", key="-BTN_TP_ALT-"), sg.Button("Excluir Tipo", key="-BTN_TP_EXC-")],
+            [sg.Table(values=[], headings=["Nome Tipo", "Preço Base"], key="-TAB_TIPOS-", **config_tabela)]
+        ]
+
+        layout_pacientes = [
+            [sg.Text("Nome:"), sg.Input(key="-PAC_NOME-", size=(20,1)), sg.Text("CPF:"), sg.Input(key="-PAC_CPF-", size=(15,1), enable_events=True)],
+            [sg.Text("Celular:"), sg.Input(key="-PAC_CEL-", size=(20,1), enable_events=True), sg.Text("Nasc:"), sg.Input(key="-PAC_DATA-", size=(12,1))],
+            [sg.Button("Cadastrar", key="-BTN_PAC-"), sg.Button("Alterar", key="-BTN_PAC_ALT-"), sg.Button("Excluir", key="-BTN_PAC_EXC-")],
+            [sg.Table(values=[], headings=["Nome", "CPF", "Idade", "Celular"], key="-TAB_PACIENTES-", **config_tabela)]
+        ]
+
+        layout_profissionais = [
+            [sg.Text("Nome:"), sg.Input(key="-PROF_NOME-", size=(20,1)), sg.Text("CPF:"), sg.Input(key="-PROF_CPF-", size=(15,1), enable_events=True)],
+            [sg.Text("Especialidade:"), sg.Input(key="-PROF_ESP-", size=(15,1)), sg.Text("Registro/CRM:"), sg.Input(key="-PROF_REG-", size=(15,1))],
+            [sg.Text("Celular:"), sg.Input(key="-PROF_CEL-", size=(15,1), enable_events=True), sg.Text("Nasc:"), sg.Input(key="-PROF_DATA-", size=(12,1))],
+            [sg.Button("Cadastrar", key="-BTN_PROF-"), sg.Button("Alterar", key="-BTN_PROF_ALT-"), sg.Button("Excluir", key="-BTN_PROF_EXC-")],
+            [sg.Table(values=[], headings=["Nome", "Especialidade", "Registro", "CPF"], key="-TAB_PROFISSIONAIS-", **config_tabela)]
+        ]
+
+        layout_atendimento = [
+            [sg.Text("ID Atendimento:"), sg.Input(key="-AT_ID-", size=(8,1), disabled=True)],
+            [sg.Text("Clínica:"), sg.Combo([], key="-AT_CLI-", size=(20,1)), sg.Text("Tipo Atend.:"), sg.Combo([], key="-AT_TIPO-", size=(20,1))],
+            [sg.Text("Paciente:"), sg.Combo([], key="-AT_PAC-", size=(30,1)), sg.Text("Médico Responsável:"), sg.Combo([], key="-AT_PROF-", size=(30,1))],
+            [sg.Text("Hora Início:"), sg.Input(key="-AT_INI-", size=(10,1)), sg.Text("Hora Fim:"), sg.Input(key="-AT_FIM-", size=(10,1))],
+            [sg.Button("Agendar Atendimento", key="-BTN_ATEND-"), sg.Button("Alterar Registro", key="-BTN_AT_ALT-"), sg.Button("Excluir Agendamento", key="-BTN_AT_EXC-")],
+            [sg.Table(values=[], headings=["ID", "Paciente", "Clínica", "Médico", "Tipo", "Horário", "Custo Atual"], key="-TAB_AGENDA-", **config_tabela)],
+            [sg.HSeparator(color="#BDC3C7")],
+            [sg.Frame("Lançar Procedimento Adicional para Consulta Selecionada", [
+                [sg.Text("Descrição Procedimento:"), sg.Input(key="-PROC_DESC-", size=(25,1)), sg.Text("Custo Adicional: R$"), sg.Input(key="-PROC_CUSTO-", size=(12,1))],
+                [sg.Text("Profissional Executor:"), sg.Combo([], key="-PROC_PROF-", size=(30,1)), sg.Button("Inserir Procedimento", key="-BTN_ADD_PROC-")]
+            ], background_color=COR_FUNDO_ABAS, title_color=COR_TEXTO, expand_x=True)]
+        ]
+
+        layout_aba_financeira = [
+            [sg.Table(values=[], headings=["ID", "Paciente", "Saldo Restante Total", "Últimos Lançamentos"], key="-TAB_FIN_CONSULTAS-", **config_tabela)],
+            [sg.Frame("Processar Pagamento", [
+                [sg.Text("ID:"), sg.Input(key="-FIN_ID-", size=(8,1), disabled=True), sg.Text("Valor: R$"), sg.Input(key="-FIN_VAL-", size=(12,1)), 
+                 sg.Text("Método:"), sg.Combo(["Dinheiro", "Pix", "Cartão"], default_value="Dinheiro", key="-FIN_MODALIDADE-", enable_events=True)],
+                [sg.pin(sg.Frame("Configuração Pix", [[sg.Text("CPF Pagador:"), sg.Input(key="-FIN_PIX_CPF-", size=(20,1), enable_events=True)]], key="-FR_PIX-", background_color=COR_FUNDO_ABAS, visible=False))],
+                [sg.pin(sg.Frame("Configuração Cartão", [[sg.Text("Bandeira:"), sg.Input(key="-FIN_CARD_BAND-", size=(12,1)), sg.Text("Nº Cartão:"), sg.Input(key="-FIN_CARD_NUM-", size=(20,1))]], key="-FR_CARD-", background_color=COR_FUNDO_ABAS, visible=False))],
+                [sg.Button("Confirmar Recebimento", key="-BTN_PAGAR-")]
+            ], background_color=COR_FUNDO_ABAS, title_color=COR_TEXTO, expand_x=True)],
+            [sg.HSeparator(color="#BDC3C7")],
+            [sg.Button("Gerar Relatório Gerencial de Faturamento por Unidade", key="-BTN_REL-", expand_x=True)],
+            [sg.Multiline(size=(90, 8), key="-DISPLAY_REL-", disabled=True, font=("Courier", 10), background_color="#FFFFFF", text_color=COR_TEXTO, expand_x=True)]
+        ]
+
+        layout_principal = [[sg.TabGroup([[
+            sg.Tab("Estruturas Clínicas", [[sg.TabGroup([[sg.Tab("Clínicas", sub_tab_clinicas, background_color=COR_FUNDO_ABAS), sg.Tab("Tipos de Atendimento", sub_tab_tipos, background_color=COR_FUNDO_ABAS)]], **config_abas)]], background_color=COR_FUNDO_JANELA),
+            sg.Tab("Gerenciamento de Pacientes", layout_pacientes, background_color=COR_FUNDO_ABAS),
+            sg.Tab("Corpo Clínico / Médicos", layout_profissionais, background_color=COR_FUNDO_ABAS),
+            sg.Tab("Agendamentos & Procedimentos", layout_atendimento, background_color=COR_FUNDO_ABAS),
+            sg.Tab("Caixa / Financeiro & Relatórios", layout_aba_financeira, background_color=COR_FUNDO_ABAS)
+        ]], expand_y=True, **config_abas)]]
+
+        return sg.Window("Sistema de Gestão Clínica Integrada", layout_principal, size=(1050, 750), finalize=True, background_color=COR_FUNDO_JANELA)
+
+    def _atualizar_tabelas_e_combos(self, window):
+        window["-TAB_CLINICAS-"].update(values=[[c.nome, c.cidade, f"{c.hora_abertura.hour}h-{c.hora_fechamento.hour}h"] for c in self.controller.listar_clinicas()])
+        window["-TAB_TIPOS-"].update(values=[[t.nome, f"R$ {t.preco_base:.2f}"] for t in self.controller.listar_tipos_atendimento()])
         
-        elif sub_op == "5":
-            self.controller.cadastrar_paciente(input("Nome: "), input("Celular: "), input("CPF: "), int(input("Ano Nasc: ")), int(input("Mês Nasc: ")), int(input("Dia Nasc: ")))
-            print("Paciente cadastrado com sucesso!")
-        elif sub_op == "6":
-            self.controller.alterar_paciente(input("CPF do paciente a alterar: "), input("Novo Nome: "), input("Novo Celular: "), int(input("Novo Ano Nasc: ")), int(input("Novo Mês Nasc: ")), int(input("Novo Dia Nasc: ")))
-            print("Paciente updated!")
-        elif sub_op == "7":
-            self.controller.excluir_paciente(input("CPF do paciente a remover: "))
-            print("Paciente removido!")
-        elif sub_op == "8":
-            for p in self.controller.listar_pacientes():
-                print(f"Paciente: {p.nome} | CPF: {p.cpf} | Idade: {p.idade} anos")
+        window["-TAB_PACIENTES-"].update(values=[[p.nome, formatar_cpf(p.cpf), f"{p.idade} anos", formatar_celular(p.celular)] for p in self.controller.listar_pacientes()])
+        window["-TAB_PROFISSIONAIS-"].update(values=[[prof.nome, prof.especialidade, prof.registro_profissional, formatar_cpf(prof.cpf)] for prof in self.controller.listar_profissionais()])
+        
+        agenda_dados, fin_dados = [], []
+        for a in self.controller.listar_atendimentos():
+            agenda_dados.append([a.id, a.paciente.nome, a.clinica.nome, a.profissional.nome, a.tipo_atendimento.nome, f"{a.hora_inicio.hour}h-{a.hora_fim.hour}h", f"R$ {a.valor_total:.2f}"])
+            status = ", ".join(str(p.modalidade) for p in a.pagamentos) if a.pagamentos else "Em aberto"
+            if a.valor_restante == 0: status = f"Quitado ({status})"
+            fin_dados.append([a.id, a.paciente.nome, f"R$ {a.valor_restante:.2f}", status])
+        
+        window["-TAB_AGENDA-"].update(values=agenda_dados)
+        window["-TAB_FIN_CONSULTAS-"].update(values=fin_dados)
 
-        elif sub_op == "9":
-            self.controller.cadastrar_profissional(input("Nome: "), input("Celular: "), input("CPF: "), int(input("Ano Nasc: ")), int(input("Mês Nasc: ")), int(input("Dia Nasc: ")), input("Especialidade: "), input("Registro (CRM): "))
-            print("Profissional cadastrado!")
-        elif sub_op == "10":
-            self.controller.alterar_profissional(input("CPF do profissional: "), input("Novo Nome: "), input("Novo Celular: "), input("Nova Especialidade: "), input("Novo Registro: "))
-            print("Profissional atualizado!")
-        elif sub_op == "11":
-            self.controller.excluir_profissional(input("CPF do profissional a remover: "))
-            print("Profissional deletado!")
-        elif sub_op == "12":
-            for prof in self.controller.listar_profissionais():
-                print(f"Dr(a): {prof.nome} | Esp: {prof.especialidade} | Registro: {prof.registro_profissional}")
+        nomes_cli = [c.nome for c in self.controller.listar_clinicas()]
+        nomes_tp = [t.nome for t in self.controller.listar_tipos_atendimento()]
+        
+        combos_pac = [f"{p.nome} | {formatar_cpf(p.cpf)}" for p in self.controller.listar_pacientes()]
+        combos_prof = [f"{prof.nome} | {formatar_cpf(prof.cpf)}" for prof in self.controller.listar_profissionais()]
 
-    def _submenu_atendimentos(self):
-        print("\n--- SUBMENU: GESTÃO DE ATENDIMENTOS ---")
-        print("1. Agendar Atendimento | 2. Alterar Valor Atendimento | 3. Cancelar/Excluir Atendimento | 4. Listar Agenda")
-        sub_op = input("Selecione a ação: ")
+        window["-AT_CLI-"].update(values=nomes_cli)
+        window["-AT_TIPO-"].update(values=nomes_tp)
+        window["-AT_PAC-"].update(values=combos_pac)
+        window["-AT_PROF-"].update(values=combos_prof)
+        window["-PROC_PROF-"].update(values=combos_prof)
 
-        if sub_op == "1":
-            id_gerado = self.controller.agendar_atendimento(input("Nome da Clínica: "), input("CPF Paciente: "), input("CPF Profissional: "), float(input("Valor Base: R$ ")))
-            print(f"Atendimento #{id_gerado} agendado com sucesso!")
-        elif sub_op == "2":
-            self.controller.alterar_valor_atendimento(int(input("ID do Atendimento: ")), float(input("Novo Valor Base: R$ ")))
-            print("Preço alterado com sucesso.")
-        elif sub_op == "3":
-            self.controller.excluir_atendimento(int(input("ID do Atendimento para exclusão: ")))
-            print("Atendimento cancelado e removido do sistema.")
-        elif sub_op == "4":
-            for a in self.controller.listar_atendimentos():
-                print(f"ID #{a.id} | Paciente: {a.paciente.nome} | Clínica: {a.clinica.nome} | Total: R${a.valor_total:.2f} | Restante: R${a.valor_restante:.2f}")
+    def rodar(self):
+        window = self.construir_layout()
+        self._atualizar_tabelas_e_combos(window)
 
-    def _submenu_pagamentos(self):
-        print("\n--- SUBMENU: GESTÃO DE PAGAMENTOS ---")
-        print("1. Efetuar Pagamento | 2. Alterar Último Pagamento | 3. Estornar Último Pagamento")
-        sub_op = input("Selecione a ação: ")
+        while True:
+            event, valores = window.read()
+            if event in (sg.WINDOW_CLOSED, "Exit"): break
 
-        if sub_op == "1":
-            id_atend = int(input("ID do Atendimento: "))
-            valor = float(input("Valor a Pagar: R$ "))
-            print("1. Dinheiro | 2. PIX | 3. Cartão")
-            mod = input("Modo: ")
-            if mod == "1": modalidade = PagamentoDinheiro()
-            elif mod == "2": modalidade = PagamentoPix(input("CPF do Pagador: "))
-            elif mod == "3": modalidade = PagamentoCartao(input("Número Cartão: "), input("Bandeira: "))
-            else: raise RegraNegocioError("Modalidade de pagamento inexistente.")
-            
-            self.controller.registrar_pagamento(id_atend, valor, modalidade)
-            print("Pagamento computado com sucesso!")
-        elif sub_op == "2":
-            self.controller.alterar_ultimo_pagamento(int(input("ID do Atendimento: ")), float(input("Novo Valor do Último Pagamento: R$ ")))
-            print("Valor corrigido!")
-        elif sub_op == "3":
-            self.controller.excluir_ultimo_pagamento(int(input("ID do Atendimento: ")))
-            print("Último pagamento excluído/estornado!")
+            if event in ("-PAC_CPF-", "-PROF_CPF-", "-FIN_PIX_CPF-"):
+                texto_formatado = formatar_cpf(valores[event])
+                if valores[event] != texto_formatado:
+                    window[event].update(texto_formatado)
 
-    def _submenu_relatorios(self):
-        print("\n--- SUBMENU: RELATÓRIOS GERENCIAIS ---")
-        print("1. Clínicas Mais Populares (Volume de Atendimentos) | 2. Faturamento Consolidado por Clínica")
-        sub_op = input("Selecione: ")
+            elif event in ("-PAC_CEL-", "-PROF_CEL-"):
+                texto_formatado = formatar_celular(valores[event])
+                if valores[event] != texto_formatado:
+                    window[event].update(texto_formatado)
 
-        if sub_op == "1":
-            dados = self.controller.relatorio_clinica_mais_atendimentos()
-            if not dados: print("Sem dados consolidados.")
-            for nome, qtd in dados: print(f"Clínica: {nome} | Atendimentos Realizados: {qtd}")
-        elif sub_op == "2":
-            dados = self.controller.relatorio_faturamento_total()
-            if not dados: print("Sem dados de faturamento.")
-            for nome, total in dados: print(f"Clínica: {nome} | Faturamento Total Acumulado: R$ {total:.2f}")
+            try:
+                if event == "-FIN_MODALIDADE-":
+                    window["-FR_PIX-"].update(visible=(valores["-FIN_MODALIDADE-"] == "Pix"))
+                    window["-FR_CARD-"].update(visible=(valores["-FIN_MODALIDADE-"] == "Cartão"))
 
-    def _carga_inicial_testes(self):
-        self.controller.cadastrar_clinica("Alpha", "Florianópolis", "Geral", 8, 18)
-        self.controller.cadastrar_paciente("Carlos Silva", "9999-9999", "123", 1990, 5, 15)
-        self.controller.cadastrar_paciente("Bebê João", "8888-8888", "321", 2022, 1, 1)
-        self.controller.cadastrar_profissional("Dra. Ana", "7777-7777", "456", 1985, 3, 20, "Cardiologia", "CRM-123")
+                elif event == "-BTN_CLI-":
+                    self.controller.cadastrar_clinica(valores["-CLI_NOME-"], valores["-CLI_CIDADE-"], valores["-CLI_DESC-"], int(valores["-CLI_ABER-"]), int(valores["-CLI_FECH-"]))
+                    self._atualizar_tabelas_e_combos(window)
+                elif event == "-BTN_CLI_ALT-":
+                    self.controller.alterar_clinica(valores["-CLI_NOME-"], valores["-CLI_CIDADE-"], valores["-CLI_DESC-"], int(valores["-CLI_ABER-"]), int(valores["-CLI_FECH-"]))
+                    self._atualizar_tabelas_e_combos(window)
+                elif event == "-BTN_CLI_EXC-":
+                    self.controller.excluir_clinica(valores["-CLI_NOME-"])
+                    self._atualizar_tabelas_e_combos(window)
+                elif event == "-TAB_CLINICAS-" and valores["-TAB_CLINICAS-"]:
+                    obj = self.controller.listar_clinicas()[valores["-TAB_CLINICAS-"][0]]
+                    window["-CLI_NOME-"].update(obj.nome)
+                    window["-CLI_CIDADE-"].update(obj.cidade)
+                    window["-CLI_DESC-"].update(obj.descricao)
+                    window["-CLI_ABER-"].update(obj.hora_abertura.hour)
+                    window["-CLI_FECH-"].update(obj.hora_fechamento.hour)
 
+                elif event == "-BTN_TP-":
+                    self.controller.cadastrar_tipo_atendimento(valores["-TP_NOME-"], float(valores["-TP_PRECO-"]))
+                    self._atualizar_tabelas_e_combos(window)
+                elif event == "-BTN_TP_ALT-":
+                    self.controller.alterar_tipo_atendimento(valores["-TP_NOME-"], float(valores["-TP_PRECO-"]))
+                    self._atualizar_tabelas_e_combos(window)
+                elif event == "-BTN_TP_EXC-":
+                    self.controller.excluir_tipo_atendimento(valores["-TP_NOME-"])
+                    self._atualizar_tabelas_e_combos(window)
+                elif event == "-TAB_TIPOS-" and valores["-TAB_TIPOS-"]:
+                    obj = self.controller.listar_tipos_atendimento()[valores["-TAB_TIPOS-"][0]]
+                    window["-TP_NOME-"].update(obj.nome)
+                    window["-TP_PRECO-"].update(obj.preco_base)
+
+                elif event == "-BTN_PAC-":
+                    self.controller.cadastrar_paciente(valores["-PAC_NOME-"], valores["-PAC_CEL-"], valores["-PAC_CPF-"], self._analisar_data(valores["-PAC_DATA-"]))
+                    self._atualizar_tabelas_e_combos(window)
+                elif event == "-BTN_PAC_ALT-":
+                    self.controller.alterar_paciente(valores["-PAC_NOME-"], valores["-PAC_CEL-"], valores["-PAC_CPF-"], self._analisar_data(valores["-PAC_DATA-"]))
+                    self._atualizar_tabelas_e_combos(window)
+                elif event == "-BTN_PAC_EXC-":
+                    self.controller.excluir_paciente(valores["-PAC_CPF-"])
+                    self._atualizar_tabelas_e_combos(window)
+                elif event == "-TAB_PACIENTES-" and valores["-TAB_PACIENTES-"]:
+                    obj = self.controller.listar_pacientes()[valores["-TAB_PACIENTES-"][0]]
+                    window["-PAC_NOME-"].update(obj.nome)
+                    window["-PAC_CPF-"].update(formatar_cpf(obj.cpf))
+                    window["-PAC_CEL-"].update(formatar_celular(obj.celular))
+                    window["-PAC_DATA-"].update(obj.data_nascimento.strftime("%d/%m/%Y"))
+
+                elif event == "-BTN_PROF-":
+                    self.controller.cadastrar_profissional(valores["-PROF_NOME-"], valores["-PROF_CEL-"], valores["-PROF_CPF-"], self._analisar_data(valores["-PROF_DATA-"]), valores["-PROF_ESP-"], valores["-PROF_REG-"])
+                    self._atualizar_tabelas_e_combos(window)
+                elif event == "-BTN_PROF_ALT-":
+                    self.controller.alterar_profissional(valores["-PROF_NOME-"], valores["-PROF_CEL-"], valores["-PROF_CPF-"], self._analisar_data(valores["-PROF_DATA-"]), valores["-PROF_ESP-"], valores["-PROF_REG-"])
+                    self._atualizar_tabelas_e_combos(window)
+                elif event == "-BTN_PROF_EXC-":
+                    self.controller.excluir_profissional(valores["-PROF_CPF-"])
+                    self._atualizar_tabelas_e_combos(window)
+                elif event == "-TAB_PROFISSIONAIS-" and valores["-TAB_PROFISSIONAIS-"]:
+                    obj = self.controller.listar_profissionais()[valores["-TAB_PROFISSIONAIS-"][0]]
+                    window["-PROF_NOME-"].update(obj.nome)
+                    window["-PROF_CPF-"].update(formatar_cpf(obj.cpf))
+                    window["-PROF_CEL-"].update(formatar_celular(obj.celular))
+                    window["-PROF_ESP-"].update(obj.especialidade)
+                    window["-PROF_REG-"].update(obj.registro_profissional)
+                    window["-PROF_DATA-"].update(obj.data_nascimento.strftime("%d/%m/%Y"))
+
+                elif event == "-BTN_ATEND-":
+                    self.controller.agendar_atendimento(valores["-AT_CLI-"], valores["-AT_PAC-"].split("|")[-1].strip(), valores["-AT_PROF-"].split("|")[-1].strip(), valores["-AT_TIPO-"], int(valores["-AT_INI-"]), int(valores["-AT_FIM-"]))
+                    self._atualizar_tabelas_e_combos(window)
+                elif event == "-BTN_AT_ALT-":
+                    self.controller.alterar_atendimento(int(valores["-AT_ID-"]), valores["-AT_CLI-"], valores["-AT_PAC-"].split("|")[-1].strip(), valores["-AT_PROF-"].split("|")[-1].strip(), valores["-AT_TIPO-"], int(valores["-AT_INI-"]), int(valores["-AT_FIM-"]))
+                    self._atualizar_tabelas_e_combos(window)
+                elif event == "-BTN_AT_EXC-":
+                    self.controller.excluir_atendimento(int(valores["-AT_ID-"]))
+                    self._atualizar_tabelas_e_combos(window)
+                elif event == "-TAB_AGENDA-" and valores["-TAB_AGENDA-"]:
+                    obj = self.controller.listar_atendimentos()[valores["-TAB_AGENDA-"][0]]
+                    window["-AT_ID-"].update(obj.id)
+                    window["-AT_CLI-"].update(obj.clinica.nome)
+                    window["-AT_TIPO-"].update(obj.tipo_atendimento.nome)
+                    window["-AT_PAC-"].update(f"{obj.paciente.nome} | {formatar_cpf(obj.paciente.cpf)}")
+                    window["-AT_PROF-"].update(f"{obj.profissional.nome} | {formatar_cpf(obj.profissional.cpf)}")
+                    window["-AT_INI-"].update(obj.hora_inicio.hour)
+                    window["-AT_FIM-"].update(obj.hora_fim.hour)
+
+                elif event == "-BTN_ADD_PROC-":
+                    if not valores["-AT_ID-"]: raise RegraNegocioError("Selecione um atendimento na tabela antes.")
+                    self.controller.adicionar_procedimento_no_atendimento(int(valores["-AT_ID-"]), valores["-PROC_DESC-"], float(valores["-PROC_CUSTO-"]), valores["-PROC_PROF-"].split("|")[-1].strip())
+                    sg.popup_ok("Procedimento vinculado ao atendimento com sucesso!")
+                    self._atualizar_tabelas_e_combos(window)
+
+                elif event == "-TAB_FIN_CONSULTAS-" and valores["-TAB_FIN_CONSULTAS-"]:
+                    obj = self.controller.listar_atendimentos()[valores["-TAB_FIN_CONSULTAS-"][0]]
+                    window["-FIN_ID-"].update(obj.id)
+                    window["-FIN_VAL-"].update(f"{obj.valor_restante:.2f}")
+                elif event == "-BTN_PAGAR-":
+                    if not valores["-FIN_ID-"]: raise RegraNegocioError("Selecione uma fatura pendente.")
+                    id_at = int(valores["-FIN_ID-"])
+                    val_p = float(valores["-FIN_VAL-"])
+                    mod_str = valores["-FIN_MODALIDADE-"]
+                    
+                    if mod_str == "Dinheiro": mod_obj = PagamentoDinheiro()
+                    elif mod_str == "Pix": mod_obj = PagamentoPix(valores["-FIN_PIX_CPF-"])
+                    else: mod_obj = PagamentoCartao(valores["-FIN_CARD_NUM-"], valores["-FIN_CARD_BAND-"])
+                    
+                    self.controller.registrar_pagamento(id_at, val_p, mod_obj)
+                    self._atualizar_tabelas_e_combos(window)
+
+                elif event == "-BTN_REL-":
+                    dados = self.controller.relatorio_faturamento_total()
+                    rel = "=========================================================================\n"
+                    rel += "                RELATORIO GERENCIAL - ARRECADACAO POR UNIDADE\n"
+                    rel += "=========================================================================\n"
+                    for nome, total, qtd in dados:
+                        rel += f" Unidade Clinica: {nome.ljust(22)} | Atendimentos: {str(qtd).ljust(4)} | Caixa: R$ {total:.2f}\n"
+                    rel += "=========================================================================\n"
+                    window["-DISPLAY_REL-"].update(rel)
+
+            except Exception as e:
+                sg.popup_error(f"Erro Operacional:\n\n{e}", title="Aviso")
+
+        window.close()
 
 if __name__ == "__main__":
-    controller = ClinicaController()
-    view = ClinicaView(controller)
-    view.executar()
+    ctrl = ClinicaController()
+
+    if not ctrl.listar_clinicas():
+        ctrl.cadastrar_clinica("Centro Medico Alpha", "Florianopolis", "Atendimento Geral", 8, 20)
+        ctrl.cadastrar_tipo_atendimento("Consulta Rotina", 150.00)
+        ctrl.cadastrar_tipo_atendimento("Exame Complexo", 350.00)
+        ctrl.cadastrar_paciente("Rodrigo Ramos", "48988888888", "01122233344", date(1995, 8, 10))
+        ctrl.cadastrar_profissional("Dr. Marcos", "48977777777", "99988877766", date(1980, 4, 12), "Cardiologia", "CRM-SC 9999")
+
+    app = ClinicaGUI(ctrl)
+    app.rodar()
