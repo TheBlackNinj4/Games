@@ -344,8 +344,11 @@ class ClinicaGUI:
         self.controller = controller
 
     def _analisar_data(self, texto_data: str) -> date:
-        try: return datetime.strptime(texto_data.strip(), "%d/%m/%Y").date()
-        except: raise RegraNegocioError("Data inválida. Use DD/MM/AAAA.")
+        texto_limpo = re.sub(r'\D', '', texto_data)
+        try:
+            return datetime.strptime(texto_limpo, "%d%m%Y").date()
+        except:
+            raise RegraNegocioError("Data inválida. Use DDMMAAAA.")
 
     def construir_layout(self):
         config_tabela = {
