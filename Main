@@ -4,7 +4,7 @@ import re
 from datetime import date, time, datetime
 from typing import List, Dict, Any
 from abc import ABC, abstractmethod
-import FreeSimpleGUI as sg # type: ignore
+import FreeSimpleGUI as sg
 
 COR_FUNDO_JANELA = "#F2F7F4"
 COR_FUNDO_ABAS = "#E6EFF2"
@@ -200,6 +200,15 @@ class ClinicaController:
         self.atendimento_dao = AtendimentoDAO()
         self.id_contador = max([a.id for a in self.atendimento_dao.obter_todos()] + [0]) + 1
 
+    def _verificar_choque_horario(self, cpf_profissional: str, inicio: time, fim: time, id_ignorar: int = None) -> None:
+        for a in self.listar_atendimentos():
+            if id_ignorar is not None and a.id == id_ignorar:
+                continue
+            
+            if a.profissional.cpf == cpf_profissional:
+                if inicio < a.hora_fim and fim > a.hora_inicio:
+                    raise RegraNegocioError("O profissional já possui um atendimento agendado para este horário.")
+
     def cadastrar_clinica(self, nome: str, cidade: str, descricao: str, h_abertura: int, h_fechamento: int) -> None:
         if not nome: raise RegraNegocioError("Nome inválido.")
         if self.clinica_dao.obter(nome): raise RegistroDuplicadoError("Clínica já cadastrada.")
@@ -265,7 +274,8 @@ class ClinicaController:
     def agendar_atendimento(self, nome_clinica: str, cpf_paciente: str, cpf_prof: str, nome_tipo: str, h_inicio: int, h_fim: int) -> int:
         clinica = self.clinica_dao.obter(nome_clinica)
         paciente = self.paciente_dao.obter(re.sub(r'\D', '', cpf_paciente))
-        prof = self.profissional_dao.obter(re.sub(r'\D', '', cpf_prof))
+        cpf_prof_limpo = re.sub(r'\D', '', cpf_prof)
+        prof = self.profissional_dao.obter(cpf_prof_limpo)
         tipo_at = self.tipo_atendimento_dao.obter(nome_tipo)
 
         if not all([clinica, paciente, prof, tipo_at]): raise RegistroNaoEncontradoError("Entidades vinculadas inválidas.")
@@ -273,6 +283,8 @@ class ClinicaController:
 
         inicio, fim = time(h_inicio, 0), time(h_fim, 0)
         if inicio >= fim: raise RegraNegocioError("Horário final deve ser maior que o inicial.")
+
+        self._verificar_choque_horario(cpf_prof_limpo, inicio, fim)
 
         novo = Atendimento(self.id_contador, clinica, paciente, prof, tipo_at, date.today(), inicio, fim)
         self.atendimento_dao.adicionar(novo.id, novo)
@@ -283,12 +295,19 @@ class ClinicaController:
         atend = self.atendimento_dao.obter(id_atend)
         if not atend: raise RegistroNaoEncontradoError("Agendamento não localizado.")
         
+        inicio, fim = time(h_inicio, 0), time(h_fim, 0)
+        if inicio >= fim: raise RegraNegocioError("Horário final deve ser maior que o inicial.")
+        
+        cpf_prof_limpo = re.sub(r'\D', '', cpf_prof)
+        
+        self._verificar_choque_horario(cpf_prof_limpo, inicio, fim, id_ignorar=id_atend)
+        
         atend.clinica = self.clinica_dao.obter(nome_clinica)
         atend.paciente = self.paciente_dao.obter(re.sub(r'\D', '', cpf_paciente))
-        atend.profissional = self.profissional_dao.obter(re.sub(r'\D', '', cpf_prof))
+        atend.profissional = self.profissional_dao.obter(cpf_prof_limpo)
         atend.tipo_atendimento = self.tipo_atendimento_dao.obter(nome_tipo)
-        atend.hora_inicio = time(h_inicio, 0)
-        atend.hora_fim = time(h_fim, 0)
+        atend.hora_inicio = inicio
+        atend.hora_fim = fim
         self.atendimento_dao.adicionar(atend.id, atend)
 
     def excluir_atendimento(self, id_atend: int) -> None:
